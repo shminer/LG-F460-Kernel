@@ -49,12 +49,11 @@ static ssize_t show_current_driver(struct device *dev,
 				   char *buf)
 {
 	ssize_t ret;
-	struct cpuidle_driver *drv;
+	struct cpuidle_driver *cpuidle_driver = cpuidle_get_driver();
 
 	spin_lock(&cpuidle_driver_lock);
-	drv = cpuidle_get_driver();
-	if (drv)
-		ret = sprintf(buf, "%s\n", drv->name);
+	if (cpuidle_driver)
+		ret = sprintf(buf, "%s\n", cpuidle_driver->name);
 	else
 		ret = sprintf(buf, "none\n");
 	spin_unlock(&cpuidle_driver_lock);

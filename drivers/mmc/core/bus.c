@@ -409,9 +409,9 @@ int mmc_add_card(struct mmc_card *card)
 	}
 
 #ifdef CONFIG_MACH_LGE
-	/*
-
-  */
+	/* LGE_CHANGE
+	 * Adding Print for more information.
+	 */
 	printk(KERN_INFO "[LGE][MMC][%-18s( )] mmc_hostname:%s, type:%s\n",
 			__func__, mmc_hostname(card->host), type);
 #endif
@@ -437,9 +437,9 @@ int mmc_add_card(struct mmc_card *card)
 	ret = device_add(&card->dev);
 
 #ifdef CONFIG_MACH_LGE
-	/*
-
-  */
+	/* LGE_CHANGE
+	 * Adding Print for more information.
+	 */
 	if (ret) {
 		printk(KERN_INFO "[LGE][MMC][%-18s( )] device_add & uevent "
 				"posting fail!, ret:%d\n", __func__, ret);
@@ -452,13 +452,14 @@ int mmc_add_card(struct mmc_card *card)
 	if (ret)
 		return ret;
 #endif
-
+	
 	// enable async suspend
 	/*Enables the asynchronous suspend of card and class device.
 	This would enable both these devices to suspend in separate
 	respective threads, thus allowing other devices to suspend
 	concurrently.*/
 	device_enable_async_suspend(&card->dev);
+
 
 	if (mmc_use_core_runtime_pm(card->host) && !mmc_card_sdio(card)) {
 		card->rpm_attrib.show = show_rpm_delay;

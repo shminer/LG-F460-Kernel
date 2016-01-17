@@ -26,7 +26,7 @@
 #include <linux/ipa.h>
 #include <linux/workqueue.h>
 #include <linux/dma-mapping.h>
-#include <soc/qcom/smsm.h>
+#include <mach/msm_smsm.h>
 #include <linux/pm_runtime.h>
 
 #define USB_THRESHOLD 512
@@ -437,7 +437,7 @@ static int connect_pipe(u8 idx, u32 *usb_pipe_idx)
 		data_buf->size = pipe_connect->data_fifo_size;
 		data_buf->base =
 			ioremap(data_buf->phys_base, data_buf->size);
-		memset_io(data_buf->base, 0, data_buf->size);
+		memset(data_buf->base, 0, data_buf->size);
 
 		desc_buf->phys_base =
 			pipe_connect->desc_fifo_base_offset +
@@ -445,7 +445,7 @@ static int connect_pipe(u8 idx, u32 *usb_pipe_idx)
 		desc_buf->size = pipe_connect->desc_fifo_size;
 		desc_buf->base =
 			ioremap(desc_buf->phys_base, desc_buf->size);
-		memset_io(desc_buf->base, 0, desc_buf->size);
+		memset(desc_buf->base, 0, desc_buf->size);
 		break;
 	case SYSTEM_MEM:
 		pr_debug("%s: USB BAM using system memory\n", __func__);
@@ -1123,6 +1123,53 @@ static void stop_cons_transfers(struct usb_bam_pipe_connect *pipe_connect)
 	}
 }
 
+static int ipa_suspend_pipes(enum usb_bam cur_bam, u32 idx)
+{
+	struct usb_bam_pipe_connect *dst_pipe, *src_pipe;
+	int ret1, ret2;
+
+	dst_pipe = &usb_bam_connections[info[cur_bam].suspend_dst_idx[idx]];
+	src_pipe = &usb_bam_connections[info[cur_bam].suspend_src_idx[idx]];
+
+	if (dst_pipe->ipa_clnt_hdl == -1 ||
+		src_pipe->ipa_clnt_hdl == -1) {
+		pr_err("%s: One of handles is -1, not connected?", __func__);
+	}
+
+	ret1 = ipa_suspend(dst_pipe->ipa_clnt_hdl);
+	if (ret1)
+		pr_err("%s: ipa_suspend on dst failed with %d", __func__, ret1);
+
+	ret2 = ipa_suspend(src_pipe->ipa_clnt_hdl);
+	if (ret2)
+		pr_err("%s: ipa_suspend on src failed with %d", __func__, ret2);
+
+	return ret1 | ret2;
+}
+
+static int ipa_resume_pipes(enum usb_bam cur_bam, u32 idx)
+{
+	struct usb_bam_pipe_connect *dst_pipe, *src_pipe;
+	int ret1, ret2;
+
+	src_pipe = &usb_bam_connections[info[cur_bam].resume_src_idx[idx]];
+	dst_pipe = &usb_bam_connections[info[cur_bam].resume_dst_idx[idx]];
+
+	if (dst_pipe->ipa_clnt_hdl == -1 ||
+		src_pipe->ipa_clnt_hdl == -1) {
+		pr_err("%s: One of handles is -1, not connected?", __func__);
+	}
+
+	ret1 = ipa_resume(dst_pipe->ipa_clnt_hdl);
+	if (ret1)
+		pr_err("%s: ipa_resume on dst failed with %d", __func__, ret1);
+	ret2 = ipa_resume(src_pipe->ipa_clnt_hdl);
+	if (ret2)
+		pr_err("%s: ipa_resume on src failed with %d", __func__, ret2);
+
+	return ret1 | ret2;
+}
+
 static void resume_suspended_pipes(enum usb_bam cur_bam)
 {
 	u32 idx, dst_idx;
@@ -1135,6 +1182,9 @@ static void resume_suspended_pipes(enum usb_bam cur_bam)
 		dst_idx = info[cur_bam].resume_dst_idx[idx];
 		pipe_connect = &usb_bam_connections[dst_idx];
 		if (pipe_connect->cons_stopped) {
+			spin_unlock(&usb_bam_ipa_handshake_info_lock);
+			ipa_resume_pipes(cur_bam, idx);
+			spin_lock(&usb_bam_ipa_handshake_info_lock);
 			pr_debug("%s: Starting CONS on %d", __func__, dst_idx);
 			start_cons_transfers(pipe_connect);
 		}
@@ -1220,6 +1270,7 @@ static void usb_bam_finish_suspend(enum usb_bam cur_bam)
 					IPA_RM_RESOURCE_RELEASED,
 					ipa_rm_resource_cons[cur_bam]);
 			}
+			ipa_suspend_pipes(cur_bam, idx);
 			spin_lock(&usb_bam_ipa_handshake_info_lock);
 			info[cur_bam].resume_src_idx[idx] =
 				info[cur_bam].suspend_src_idx[idx];
@@ -1298,7 +1349,9 @@ static void usb_prod_notify_cb(void *user_data, enum ipa_rm_event event,
 }
 
 /**
- * usb_bam_resume_host: vote for hsic host core resume.
+ * usb_bam_resume_host: vote for hsic host core resume. In
+ * addition also resume all hsic pipes that are connected to the
+ * ipa peer bam.
  *
  * NOTE: This function should be called in a context that hold
  *	 usb_bam_lock.
@@ -1315,8 +1368,12 @@ static void usb_bam_resume_host(enum usb_bam bam_type)
 			pipe_iter = &usb_bam_connections[i];
 			if (pipe_iter->bam_type == bam_type &&
 			    pipe_iter->enabled &&
-			    pipe_iter->suspended)
+			    pipe_iter->suspended) {
+				spin_unlock(&usb_bam_lock);
+				ipa_resume(pipe_iter->ipa_clnt_hdl);
 				pipe_iter->suspended = false;
+				spin_lock(&usb_bam_lock);
+			}
 		}
 }
 
@@ -1760,6 +1817,9 @@ static void usb_bam_finish_resume(struct work_struct *w)
 		dst_idx = info[cur_bam].resume_dst_idx[idx];
 		pipe_connect = &usb_bam_connections[dst_idx];
 		if (pipe_connect->cons_stopped) {
+			spin_unlock(&usb_bam_ipa_handshake_info_lock);
+			ipa_resume_pipes(cur_bam, idx);
+			spin_lock(&usb_bam_ipa_handshake_info_lock);
 			pr_debug("%s: Starting CONS on %d", __func__, dst_idx);
 			start_cons_transfers(pipe_connect);
 		}
@@ -1919,8 +1979,13 @@ bool msm_bam_host_lpm_ok(enum usb_bam bam_type)
 					&usb_bam_connections[i];
 				if (pipe_iter->bam_type == bam_type &&
 				    pipe_iter->enabled &&
-				    !pipe_iter->suspended)
+				    !pipe_iter->suspended) {
+					spin_unlock(&usb_bam_lock);
+					ipa_suspend(
+					   pipe_iter->ipa_clnt_hdl);
 					pipe_iter->suspended = true;
+					spin_lock(&usb_bam_lock);
+				}
 			}
 
 			host_info[bam_type].in_lpm = true;
@@ -2176,7 +2241,7 @@ static void usb_bam_work(struct work_struct *w)
 		 * the hsic bam clocks are already enabled, so no need
 		 * to actualluy resume the hardware... However, we still need
 		 * to update the usb bam driver state (to set in_lpm=false),
-		 * and to wake ipa and to hold again the hsic host
+		 * and to wake ipa (ipa_resume) and to hold again the hsic host
 		 * device again to avoid it going to low poer mode next time
 		 * until we complete releasing the hsic consumer and producer
 		 * resources against the ipa resource manager.

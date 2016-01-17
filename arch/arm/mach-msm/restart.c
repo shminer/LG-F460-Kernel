@@ -295,7 +295,6 @@ static void msm_restart_prepare(const char *cmd)
 	outer_flush_all();
 }
 
-
 void msm_restart(char mode, const char *cmd)
 {
 	struct task_struct *task = current_thread_info()->task;

@@ -162,7 +162,7 @@ void check_drain_timer(void)
 
 	if (!timer_in_progress) {
 		timer_in_progress = 1;
-		ret = mod_timer(&drain_timer, jiffies + msecs_to_jiffies(200));
+		ret = mod_timer(&drain_timer, jiffies + msecs_to_jiffies(500));
 	}
 }
 
@@ -629,7 +629,6 @@ static int diag_copy_dci(char __user *buf, size_t count,
 	ret = *pret;
 
 	ret += 4;
-
 	if (ret >= count) {
 		pr_err("diag: In %s, invalid value for ret: %d, count: %d\n",
 		       __func__, ret, count);
@@ -639,6 +638,7 @@ static int diag_copy_dci(char __user *buf, size_t count,
 	mutex_lock(&entry->write_buf_mutex);
 	list_for_each_entry_safe(buf_entry, temp, &entry->list_write_buf,
 								buf_track) {
+
 		if ((total_data_len + buf_entry->data_len) > (count - ret)) {
 			drain_again = 1;
 			break;
@@ -1681,7 +1681,7 @@ drop:
 
 	if (driver->data_ready[index] & DCI_DATA_TYPE) {
 		/* Copy the type of data being passed */
-		driver->data_ready[index] ^= DCI_DATA_TYPE;
+		data_type = driver->data_ready[index] & DCI_DATA_TYPE;
 		list_for_each_safe(start, temp, &driver->dci_client_list) {
 			entry = list_entry(start, struct diag_dci_client_tbl,
 									track);

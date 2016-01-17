@@ -22,7 +22,6 @@
 #include <linux/fs.h>
 #include <linux/root_dev.h>
 #include <linux/screen_info.h>
-#include <linux/memblock.h>
 
 #include <asm/setup.h>
 #include <asm/system_info.h>
@@ -179,11 +178,11 @@ static void __init squash_mem_tags(struct tag *tag)
 			tag->hdr.tag = ATAG_NONE;
 }
 
-const struct machine_desc * __init
-setup_machine_tags(phys_addr_t __atags_pointer, unsigned int machine_nr)
+struct machine_desc * __init setup_machine_tags(phys_addr_t __atags_pointer,
+						unsigned int machine_nr)
 {
 	struct tag *tags = (struct tag *)&default_tags;
-	const struct machine_desc *mdesc = NULL, *p;
+	struct machine_desc *mdesc = NULL, *p;
 	char *from = default_command_line;
 
 	default_tags.mem.start = PHYS_OFFSET;
@@ -223,10 +222,10 @@ setup_machine_tags(phys_addr_t __atags_pointer, unsigned int machine_nr)
 	}
 
 	if (mdesc->fixup)
-		mdesc->fixup(tags, &from);
+		mdesc->fixup(tags, &from, &meminfo);
 
 	if (tags->hdr.tag == ATAG_CORE) {
-		if (memblock_phys_mem_size())
+		if (meminfo.nr_banks != 0)
 			squash_mem_tags(tags);
 		save_atags(tags);
 		parse_tags(tags);

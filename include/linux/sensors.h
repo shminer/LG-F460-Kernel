@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -47,43 +47,6 @@
 #define SENSOR_TYPE_STEP_COUNTER		19
 #define SENSOR_TYPE_GEOMAGNETIC_ROTATION_VECTOR	20
 
-enum LIS3DH_AXIS {
-	AXIS_X = 0,
-	AXIS_Y,
-	AXIS_Z,
-	AXIS_XYZ,
-};
-
-enum LIS3DH_THRES {
-	AXIS_THRESHOLD_H = 0,
-	AXIS_THRESHOLD_L,
-	AXIS_BIAS,
-};
-
-#define AXIS_FACTOR		0
-#define AXIS_OFFSET		1
-
-
-struct cal_result_t {
-	union {
-
-		struct {
-			int offset_x; /*axis offset of x axis*/
-			int offset_y; /*axis offset of x axis*/
-			int offset_z; /*axis offset of x axis*/
-		};
-		struct {
-			int threshold_h; /*proximity threshold_h*/
-			int threshold_l; /*proximity threshold_l*/
-			int bias; /*proximity measure data noise*/
-		};
-		int offset[3];
-	};
-	int factor; /*light sensor factor for real ligt strength*/
-	int range;
-	struct cal_result_t *node;
-};
-
 /**
  * struct sensors_classdev - hold the sensor general parameters and APIs
  * @dev:		The device to register.
@@ -109,11 +72,8 @@ struct cal_result_t {
  * @enabled:		Store the sensor driver enable status.
  * @delay_msec:		Store the sensor driver delay value. The data unit is
  *			millisecond.
- * @wakeup:		Indicate if the wake up interrupt has been enabled
  * @sensors_enable:	The handle for enable and disable sensor.
  * @sensors_poll_delay:	The handle for set the sensor polling delay time.
- * @params		The sensor calibrate string format params up to userspace.
- * @cal_result		The sensor calibrate parameters, cal_result is a struct for sensor.
  */
 struct sensors_classdev {
 	struct device		*dev;
@@ -130,31 +90,12 @@ struct sensors_classdev {
 	int			fifo_reserved_event_count;
 	int			fifo_max_event_count;
 	unsigned int		enabled;
-	unsigned int		batch_enable;
-	unsigned int		batch_mode;
 	unsigned int		delay_msec;
-	unsigned int		batch_timeout_ms;
-	unsigned int		wakeup;
-	char			*params;
-	struct cal_result_t	cal_result;
 	/* enable and disable the sensor handle*/
 	int	(*sensors_enable)(struct sensors_classdev *sensors_cdev,
 					unsigned int enabled);
 	int	(*sensors_poll_delay)(struct sensors_classdev *sensors_cdev,
 					unsigned int delay_msec);
-	int	(*sensors_self_test)(struct sensors_classdev *sensors_cdev);
-	int	(*sensors_batch)(struct sensors_classdev *sensor_cdev,
-					unsigned int enable,
-					unsigned int mode,
-					unsigned int period_ms,
-					unsigned int timeout_ms);
-	int	(*sensors_flush)(struct sensors_classdev *sensors_cdev);
-	int	(*sensors_enable_wakeup)(struct sensors_classdev *sensors_cdev,
-			unsigned int enable);
-	int	(*sensors_calibrate)(struct sensors_classdev *sensor_cdev,
-					int axis, int apply_now);
-	int	(*sensors_write_cal_params)(struct sensors_classdev
-				*sensor_cdev, struct cal_result_t *cal_result);
 };
 
 extern int sensors_classdev_register(struct device *parent,

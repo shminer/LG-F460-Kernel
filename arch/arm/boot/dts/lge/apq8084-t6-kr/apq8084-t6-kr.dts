@@ -59,11 +59,11 @@
 };
 
 &ufsphy1 {
-	status = "disabled";
+	status = "ok";
 };
 
 &ufs1 {
-	status = "disabled";
+	status = "ok";
 };
 
 &soc {

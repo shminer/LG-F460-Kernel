@@ -22,12 +22,12 @@ struct mmc_gpio {
 	int cd_gpio;
 	char *ro_label;
 	bool status;
-	char cd_label[0]; /* Must be last entry */
+	char cd_label[0];
 };
 
 #ifdef CONFIG_MACH_LGE
-/*
-
+/* LGE_CHANGE
+ * Change it global-function for usage from others.
  */
 int mmc_gpio_get_status(struct mmc_host *host)
 #else
@@ -53,14 +53,6 @@ static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 	struct mmc_host *host = dev_id;
 	struct mmc_gpio *ctx = host->slot.handler_priv;
 	int status;
-
-	/*
-	 * In case host->ops are not yet initialized return immediately.
-	 * The card will get detected later when host driver calls
-	 * mmc_add_host() after host->ops are initialized.
-	 */
-	if (!host->ops)
-		goto out;
 
 	if (host->ops->card_event)
 		host->ops->card_event(host);

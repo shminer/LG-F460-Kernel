@@ -80,8 +80,6 @@ static struct clk_pair clks[KGSL_MAX_CLKS] = {
 	},
 };
 
-static void kgsl_pwrctrl_clk(struct kgsl_device *device, int state,
-					int requested_state);
 static void kgsl_pwrctrl_axi(struct kgsl_device *device, int state);
 static void kgsl_pwrctrl_pwrrail(struct kgsl_device *device, int state);
 
@@ -382,8 +380,8 @@ static ssize_t kgsl_pwrctrl_max_gpuclk_store(struct device *dev,
 {
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	struct kgsl_pwrctrl *pwr;
-	unsigned int val = 0, level = 0;
-	int  ret;
+	unsigned int val = 0;
+	int level, ret;
 
 	if (device == NULL)
 		return 0;
@@ -399,11 +397,7 @@ static ssize_t kgsl_pwrctrl_max_gpuclk_store(struct device *dev,
 	if (level < 0)
 		goto done;
 
-	/* if ROM set 600 max(pwr@1), set 750Max(pwr@0) thanks dorimanx hack*/
-	if (level == 1)
-		pwr->thermal_pwrlevel = level - 1;
-	else
-		pwr->thermal_pwrlevel = level;
+	pwr->thermal_pwrlevel = (unsigned int) level;
 
 	/*
 	 * if the thermal limit is lower than the current setting,
@@ -438,8 +432,8 @@ static ssize_t kgsl_pwrctrl_gpuclk_store(struct device *dev,
 {
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	struct kgsl_pwrctrl *pwr;
-	unsigned int val = 0, level = 0;
-	int ret;
+	unsigned int val = 0;
+	int ret, level;
 
 	if (device == NULL)
 		return 0;
@@ -453,28 +447,22 @@ static ssize_t kgsl_pwrctrl_gpuclk_store(struct device *dev,
 	kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
 	level = _get_nearest_pwrlevel(pwr, val);
 	if (level >= 0)
-		kgsl_pwrctrl_pwrlevel_change(device,level);
+		kgsl_pwrctrl_pwrlevel_change(device, (unsigned int) level);
 
 	kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 	return count;
 }
+
 static ssize_t kgsl_pwrctrl_gpuclk_show(struct device *dev,
 				    struct device_attribute *attr,
 				    char *buf)
 {
-	unsigned long freq;
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	struct kgsl_pwrctrl *pwr;
 	if (device == NULL)
 		return 0;
 	pwr = &device->pwrctrl;
-
-	if (device->state == KGSL_STATE_SLUMBER)
-		freq = pwr->pwrlevels[pwr->num_pwrlevels - 1].gpu_freq;
-	else
-		freq = kgsl_pwrctrl_active_freq(pwr);
-
-	return snprintf(buf, PAGE_SIZE, "%lu\n", freq);
+	return snprintf(buf, PAGE_SIZE, "%ld\n", kgsl_pwrctrl_active_freq(pwr));
 }
 
 static ssize_t kgsl_pwrctrl_idle_timer_store(struct device *dev,
@@ -483,6 +471,7 @@ static ssize_t kgsl_pwrctrl_idle_timer_store(struct device *dev,
 {
 	unsigned int val = 0;
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
+	const long div = 1000/HZ;
 	int ret;
 
 	if (device == NULL)
@@ -504,7 +493,8 @@ static ssize_t kgsl_pwrctrl_idle_timer_store(struct device *dev,
 	kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
 
 	/* Let the timeout be requested in ms, but convert to jiffies. */
-	device->pwrctrl.interval_timeout = msecs_to_jiffies(val);
+	val /= div;
+	device->pwrctrl.interval_timeout = val;
 
 	kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 
@@ -516,11 +506,12 @@ static ssize_t kgsl_pwrctrl_idle_timer_show(struct device *dev,
 					char *buf)
 {
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
+	int mul = 1000/HZ;
 	if (device == NULL)
 		return 0;
 	/* Show the idle_timeout converted to msec */
-	return snprintf(buf, PAGE_SIZE, "%u\n",
-		jiffies_to_msecs(device->pwrctrl.interval_timeout));
+	return snprintf(buf, PAGE_SIZE, "%d\n",
+		device->pwrctrl.interval_timeout * mul);
 }
 
 static ssize_t kgsl_pwrctrl_pmqos_active_latency_store(struct device *dev,
@@ -800,7 +791,7 @@ static ssize_t kgsl_pwrctrl_default_pwrlevel_store(struct device *dev,
 
 	mutex_lock(&device->mutex);
 	pwr->default_pwrlevel = level;
-	pwrscale->ext_profile.profile.initial_freq
+	pwrscale->profile.initial_freq
 			= pwr->pwrlevels[level].gpu_freq;
 
 	mutex_unlock(&device->mutex);
@@ -1181,6 +1172,8 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 					   gpu_freq) : 0;
 		pwr->pwrlevels[i].bus_freq =
 			pdata->pwrlevel[i].bus_freq;
+		pwr->pwrlevels[i].io_fraction =
+			pdata->pwrlevel[i].io_fraction;
 	}
 	/* Do not set_rate for targets in sync with AXI */
 	if (pwr->pwrlevels[0].gpu_freq > 0) {
@@ -1273,14 +1266,10 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 						== vector->ib)
 						pwr->bus_index[m] = k;
 				}
-				printk("kgsl bus ib [%d] = %llu\n", k, vector->ib);
 			}
 		}
 	}
 	pwr->pwrlevels[freq_i].bus_max = i - 1;
-
-	for (m = 0; m < pwr->num_pwrlevels - 1; m++)
-		printk("kgsl bus index is %d for pwrlevel %d\n", pwr->bus_index[m], m);
 
 	return result;
 
@@ -1503,7 +1492,6 @@ _slumber(struct kgsl_device *device)
 		del_timer_sync(&device->idle_timer);
 		/* make sure power is on to stop the device*/
 		kgsl_pwrctrl_enable(device);
-		kgsl_pwrctrl_irq(device, KGSL_PWRFLAGS_ON);
 		device->ftbl->suspend_context(device);
 		device->ftbl->stop(device);
 		_sleep_accounting(device);
@@ -1772,21 +1760,16 @@ static int _check_active_count(struct kgsl_device *device, int count)
 int kgsl_active_count_wait(struct kgsl_device *device, int count)
 {
 	int result = 0;
-	long wait_jiffies = HZ;
 
 	BUG_ON(!mutex_is_locked(&device->mutex));
 
-	while (atomic_read(&device->active_cnt) > count) {
-		long ret;
+	if (atomic_read(&device->active_cnt) > count) {
+		int ret;
 		kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 		ret = wait_event_timeout(device->active_cnt_wq,
-			_check_active_count(device, count), wait_jiffies);
+			_check_active_count(device, count), HZ);
 		kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
 		result = ret == 0 ? -ETIMEDOUT : 0;
-		if (!result)
-			wait_jiffies = ret;
-		else
-			break;
 	}
 
 	return result;

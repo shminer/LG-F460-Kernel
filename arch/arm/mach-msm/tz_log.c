@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,7 +23,7 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 #include <soc/qcom/scm.h>
-#include <soc/qcom/qseecomi.h>
+#include <mach/qseecomi.h>
 
 #define DEBUG_MAX_RW_BUF 4096
 
@@ -561,7 +561,7 @@ static void tzdbg_register_qsee_log_buf(void)
 	int ret = 0;
 
 	/* Create ION msm client */
-	g_ion_clnt = msm_ion_client_create("qsee_log");
+	g_ion_clnt = msm_ion_client_create(ION_HEAP_CARVEOUT_MASK, "qsee_log");
 	if (g_ion_clnt == NULL) {
 		pr_err("%s: Ion client cannot be created\n", __func__);
 		return;

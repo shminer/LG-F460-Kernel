@@ -49,6 +49,17 @@
 
 extern char cmd_line[COMMAND_LINE_SIZE];
 
+void __init early_init_dt_add_memory_arch(u64 base, u64 size)
+{
+	size &= PAGE_MASK;
+	memblock_add(base, size);
+}
+
+void * __init early_init_dt_alloc_memory_arch(u64 size, u64 align)
+{
+	return __va(memblock_alloc(size, align));
+}
+
 void __init early_init_devtree(void *params)
 {
 	void *alloc;
@@ -85,7 +96,8 @@ void __init early_init_devtree(void *params)
 }
 
 #ifdef CONFIG_BLK_DEV_INITRD
-void __init early_init_dt_setup_initrd_arch(u64 start, u64 end)
+void __init early_init_dt_setup_initrd_arch(unsigned long start,
+		unsigned long end)
 {
 	initrd_start = (unsigned long)__va(start);
 	initrd_end = (unsigned long)__va(end);

@@ -48,17 +48,15 @@ int request_firmware_nowait(
 int request_firmware_direct(const char *name, struct device *device,
 			    phys_addr_t dest_addr, size_t dest_size,
 			    void * (*map_fw_mem)(phys_addr_t phys,
-						 size_t size, void *data),
-			    void (*unmap_fw_mem)(void *virt, size_t size,
-							void *data),
-			    void *data);
+						 size_t size),
+			    void (*unmap_fw_mem)(void *virt));
 int request_firmware_nowait_direct(
 	struct module *module, bool uevent,
 	const char *name, struct device *device, gfp_t gfp, void *context,
 	void (*cont)(const struct firmware *fw, void *context),
 	phys_addr_t dest_addr, size_t dest_size,
-	void * (*map_fw_mem)(phys_addr_t phys, size_t size, void *data),
-	void (*unmap_fw_mem)(void *virt, size_t size, void *data), void *data);
+	void * (*map_fw_mem)(phys_addr_t phys, size_t size),
+	void (*unmap_fw_mem)(void *virt));
 void release_firmware(const struct firmware *fw);
 int cache_firmware(const char *name);
 int uncache_firmware(const char *name);
@@ -74,9 +72,8 @@ static inline int request_firmware_direct(const char *name,
 					  phys_addr_t dest_addr,
 					  size_t dest_size,
 					  void * (*map_fw_mem)(phys_addr_t phys,
-						       size_t size, void *data),
-					  void (*unmap_fw_mem)(void *virt),
-					  void *data)
+							       size_t size),
+					  void (*unmap_fw_mem)(void *virt))
 {
 	return -EINVAL;
 }
@@ -92,8 +89,8 @@ static inline int request_firmware_nowait_direct(
 	const char *name, struct device *device, gfp_t gfp, void *context,
 	void (*cont)(const struct firmware *fw, void *context),
 	phys_addr_t dest_addr, size_t dest_size,
-	void * (*map_fw_mem)(phys_addr_t phys, size_t size, void *data),
-	void (*unmap_fw_mem)(void *virt, void *data), void *data)
+	void * (*map_fw_mem)(phys_addr_t phys, size_t size),
+	void (*unmap_fw_mem)(void *virt))
 {
 	return -EINVAL;
 }

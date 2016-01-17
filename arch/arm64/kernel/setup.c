@@ -219,8 +219,6 @@ static void __init setup_machine_fdt(phys_addr_t dt_phys)
 	struct boot_param_header *devtree;
 	unsigned long dt_root;
 
-	cpuinfo_store_cpu();
-
 	/* Check we have a non-NULL DT pointer */
 	if (!dt_phys) {
 		early_print("\n"
@@ -282,6 +280,11 @@ void __init early_init_dt_add_memory_arch(u64 base, u64 size)
 		base = PHYS_OFFSET;
 	}
 	memblock_add(base, size);
+}
+
+void * __init early_init_dt_alloc_memory_arch(u64 size, u64 align)
+{
+	return __va(memblock_alloc(size, align));
 }
 
 /*
@@ -381,12 +384,14 @@ static int __init arm64_device_init(void)
 }
 arch_initcall(arm64_device_init);
 
+static DEFINE_PER_CPU(struct cpu, cpu_data);
+
 static int __init topology_init(void)
 {
 	int i;
 
 	for_each_possible_cpu(i) {
-		struct cpu *cpu = &per_cpu(cpu_data.cpu, i);
+		struct cpu *cpu = &per_cpu(cpu_data, i);
 		cpu->hotpluggable = 1;
 		register_cpu(cpu, i);
 	}
@@ -402,41 +407,14 @@ static const char *hwcap_str[] = {
 	NULL
 };
 
-#ifdef CONFIG_COMPAT
-static const char *compat_hwcap_str[] = {
-	"swp",
-	"half",
-	"thumb",
-	"26bit",
-	"fastmult",
-	"fpa",
-	"vfp",
-	"edsp",
-	"java",
-	"iwmmxt",
-	"crunch",
-	"thumbee",
-	"neon",
-	"vfpv3",
-	"vfpv3d16",
-	"tls",
-	"vfpv4",
-	"idiva",
-	"idivt",
-	"vfpd32",
-	"lpae",
-	"evtstrm"
-};
-#endif /* CONFIG_COMPAT */
-
 static int c_show(struct seq_file *m, void *v)
 {
-	int i, j;
+	int i;
+
+	seq_printf(m, "Processor\t: %s rev %d (%s)\n",
+		   cpu_name, read_cpuid_id() & 15, ELF_PLATFORM);
 
 	for_each_online_cpu(i) {
-		struct cpuinfo_arm64 *cpuinfo = &per_cpu(cpu_data, i);
-		u32 midr = cpuinfo->reg_midr;
-
 		/*
 		 * glibc reads /proc/cpuinfo to determine the number of
 		 * online processors, looking for lines beginning with

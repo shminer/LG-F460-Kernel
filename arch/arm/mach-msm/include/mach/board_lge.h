@@ -97,7 +97,7 @@ enum lge_boot_mode_type {
 	LGE_BOOT_MODE_PIF_56K,
 	LGE_BOOT_MODE_PIF_130K,
 	LGE_BOOT_MODE_PIF_910K,
-	LGE_BOOT_MODE_MINIOS    /*                          */
+	LGE_BOOT_MODE_MINIOS    /* LGE_UPDATE for MINIOS2.0 */
 };
 
 int lge_get_factory_boot(void);
@@ -110,6 +110,24 @@ void __init lge_add_android_usb_devices(void);
 #ifdef CONFIG_MACH_MSM8974_G2_VZW
 int lge_get_battery_low(void);
 #endif
+
+#if defined(CONFIG_LGE_LCD_KCAL)
+/* LGE_CHANGE_S
+* change code for LCD KCAL
+* 2013-05-08, seojin.lee@lge.com
+*/
+struct kcal_data {
+		int red;
+		int green;
+		int blue;
+};
+
+struct kcal_platform_data {
+	int (*set_values) (int r, int g, int b);
+	int (*get_values) (int *r, int *g, int *b);
+	int (*refresh_display) (void);
+};
+#endif /* CONFIG_LGE_LCD_KCAL */
 
 enum lge_boot_mode_type lge_get_boot_mode(void);
 
@@ -143,6 +161,19 @@ extern bool lge_get_cont_splash_enabled(void);
 
 extern unsigned int lge_get_uart_mode(void);
 extern void lge_set_uart_mode(unsigned int um);
+
+#if defined(CONFIG_LGE_LCD_KCAL)
+/* LGE_CHANGE_S
+* change code for LCD KCAL
+* 2013-05-08, seojin.lee@lge.com
+*/
+extern int g_kcal_r;
+extern int g_kcal_g;
+extern int g_kcal_b;
+extern int kcal_set_values(int kcal_r, int kcal_g, int kcal_b);
+extern int update_preset_lcdc_lut(void);
+void __init lge_add_lcd_kcal_devices(void);
+#endif
 
 #ifdef CONFIG_LGE_LCD_TUNING
 void __init lge_add_lcd_misc_devices(void);

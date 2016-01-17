@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 2002 ARM Ltd.
  *  All Rights Reserved
- *  Copyright (c) 2010-2015, The Linux Foundation. All rights reserved.
+ *  Copyright (c) 2010-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -107,6 +107,8 @@ static int __cpuinit msm8960_release_secondary(unsigned long base,
 	if (!base_ptr)
 		return -ENODEV;
 
+	msm_spm_turn_on_cpu_rail(MSM8960_SAW2_BASE_ADDR, cpu);
+
 	writel_relaxed(0x109, base_ptr+0x04);
 	writel_relaxed(0x101, base_ptr+0x04);
 	mb();
@@ -164,6 +166,8 @@ static int __cpuinit msm8962_release_secondary(unsigned long base,
 
 	if (!base_ptr)
 		return -ENODEV;
+
+	msm_spm_turn_on_cpu_rail(MSM8962_SAW2_BASE_ADDR, cpu);
 
 	writel_relaxed(0x021, base_ptr+0x04);
 	mb();
@@ -399,7 +403,7 @@ static void __init msm_platform_smp_prepare_cpus(unsigned int max_cpus)
 
 	for_each_present_cpu(cpu) {
 		map = cpu_logical_map(cpu);
-		if (map >= ARRAY_SIZE(cold_boot_flags)) {
+		if (map > ARRAY_SIZE(cold_boot_flags)) {
 			set_cpu_present(cpu, false);
 			__WARN();
 			continue;

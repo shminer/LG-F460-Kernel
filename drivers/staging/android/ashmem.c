@@ -374,7 +374,7 @@ static int ashmem_shrink(struct shrinker *s, struct shrink_control *sc)
 		loff_t start = range->pgstart * PAGE_SIZE;
 		loff_t end = (range->pgend + 1) * PAGE_SIZE;
 
-		range->asma->file->f_op->fallocate(range->asma->file,
+		do_fallocate(range->asma->file,
 				FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
 				start, end - start);
 		range->purged = ASHMEM_WAS_PURGED;
@@ -705,7 +705,8 @@ done:
 #endif
 
 static int ashmem_cache_op(struct ashmem_area *asma,
-	void (*cache_func)(const void *vstart, const void *vend))
+	void (*cache_func)(unsigned long vstart, unsigned long length,
+				unsigned long pstart))
 {
 	int ret = 0;
 	struct vm_area_struct *vma;
@@ -730,8 +731,7 @@ static int ashmem_cache_op(struct ashmem_area *asma,
 		goto done;
 	}
 #ifndef CONFIG_OUTER_CACHE
-		cache_func((void *)asma->vm_start,
-			(void *)(asma->vm_start + asma->size));
+	cache_func(asma->vm_start, asma->size, 0);
 #else
 	for (vaddr = asma->vm_start; vaddr < asma->vm_start + asma->size;
 		vaddr += PAGE_SIZE) {
@@ -795,13 +795,13 @@ static long ashmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		}
 		break;
 	case ASHMEM_CACHE_FLUSH_RANGE:
-		ret = ashmem_cache_op(asma, &dmac_flush_range);
+		ret = ashmem_cache_op(asma, &clean_and_invalidate_caches);
 		break;
 	case ASHMEM_CACHE_CLEAN_RANGE:
-		ret = ashmem_cache_op(asma, &dmac_clean_range);
+		ret = ashmem_cache_op(asma, &clean_caches);
 		break;
 	case ASHMEM_CACHE_INV_RANGE:
-		ret = ashmem_cache_op(asma, &dmac_inv_range);
+		ret = ashmem_cache_op(asma, &invalidate_caches);
 		break;
 	}
 

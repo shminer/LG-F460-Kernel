@@ -29,6 +29,26 @@ static void wait_callback(struct kgsl_device *device,
 	wake_up_all(&drawctxt->waiting);
 }
 
+#define adreno_wait_event_interruptible_timeout(wq, condition, timeout, io)   \
+({                                                                            \
+	long __ret = timeout;                                                 \
+	if (io)                                                               \
+		__wait_io_event_interruptible_timeout(wq, condition, __ret);  \
+	else                                                                  \
+		__wait_event_interruptible_timeout(wq, condition, __ret);     \
+	__ret;                                                                \
+})
+
+#define adreno_wait_event_interruptible(wq, condition, io)                    \
+({                                                                            \
+	long __ret;                                                           \
+	if (io)                                                               \
+		__wait_io_event_interruptible(wq, condition, __ret);          \
+	else                                                                  \
+		__wait_event_interruptible(wq, condition, __ret);             \
+	__ret;                                                                \
+})
+
 static int _check_context_timestamp(struct kgsl_device *device,
 		struct adreno_context *drawctxt, unsigned int timestamp)
 {
@@ -61,10 +81,11 @@ int adreno_drawctxt_wait(struct adreno_device *adreno_dev,
 		struct kgsl_context *context,
 		uint32_t timestamp, unsigned int timeout)
 {
+	static unsigned int io_cnt;
 	struct kgsl_device *device = &adreno_dev->dev;
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 	struct adreno_context *drawctxt = ADRENO_CONTEXT(context);
-	int ret;
-	long ret_temp;
+	int ret, io;
 
 	if (kgsl_context_detached(context))
 		return -EINVAL;
@@ -82,26 +103,34 @@ int adreno_drawctxt_wait(struct adreno_device *adreno_dev,
 	if (ret)
 		goto done;
 
+	/*
+	 * For proper power accounting sometimes we need to call
+	 * io_wait_interruptible_timeout and sometimes we need to call
+	 * plain old wait_interruptible_timeout. We call the regular
+	 * timeout N times out of 100, where N is a number specified by
+	 * the current power level
+	 */
+
+	io_cnt = (io_cnt + 1) % 100;
+	io = (io_cnt < pwr->pwrlevels[pwr->active_pwrlevel].io_fraction)
+		? 0 : 1;
+
 	kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 
 	if (timeout) {
-		ret_temp = msecs_to_jiffies(timeout);
-		__wait_event_interruptible_timeout(
+		ret = (int) adreno_wait_event_interruptible_timeout(
 			drawctxt->waiting,
 			_check_context_timestamp(device, drawctxt, timestamp),
-			ret_temp);
+			msecs_to_jiffies(timeout), io);
 
-		if (ret_temp == 0)
+		if (ret == 0)
 			ret = -ETIMEDOUT;
-		else if (ret_temp > 0)
+		else if (ret > 0)
 			ret = 0;
-		else
-			ret = (int) ret_temp;
 	} else {
-		__wait_event_interruptible(drawctxt->waiting,
+		ret = (int) adreno_wait_event_interruptible(drawctxt->waiting,
 			_check_context_timestamp(device, drawctxt, timestamp),
-				ret_temp);
-		ret = (int)ret_temp;
+				io);
 	}
 
 	kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
@@ -313,8 +342,7 @@ adreno_drawctxt_create(struct kgsl_device_private *dev_priv,
 		KGSL_CONTEXT_CTX_SWITCH |
 		KGSL_CONTEXT_PRIORITY_MASK |
 		KGSL_CONTEXT_TYPE_MASK |
-		KGSL_CONTEXT_PWR_CONSTRAINT |
-		KGSL_CONTEXT_IFH_NOP);
+		KGSL_CONTEXT_PWR_CONSTRAINT);
 
 	/* Always enable per-context timestamps */
 	drawctxt->base.flags |= KGSL_CONTEXT_PER_CONTEXT_TS;
@@ -431,15 +459,9 @@ int adreno_drawctxt_detach(struct kgsl_context *context)
 	 */
 	BUG_ON(!mutex_is_locked(&device->mutex));
 
-	/*
-	 * Wait for the last global timestamp to pass before continuing.
-	 * The maxumum wait time is 30s, some large IB's can take longer
-	 * than 10s and if hang happens then the time for the context's
-	 * commands to retire will be greater than 10s. 30s should be sufficient
-	 * time to wait for the commands even if a hang happens.
-	 */
+	/* Wait for the last global timestamp to pass before continuing */
 	ret = adreno_drawctxt_wait_global(adreno_dev, context,
-		drawctxt->internal_timestamp, 30 * 1000);
+		drawctxt->internal_timestamp, 10 * 1000);
 
 	/*
 	 * If the wait for global fails then nothing after this point is likely

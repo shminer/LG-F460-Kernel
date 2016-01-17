@@ -212,9 +212,9 @@
 #ifdef CONFIG_SMP
 #if __LINUX_ARM_ARCH__ >= 7
 	.ifeqs "\mode","arm"
-	ALT_SMP(dmb	ish)
+	ALT_SMP(dmb)
 	.else
-	ALT_SMP(W(dmb)	ish)
+	ALT_SMP(W(dmb))
 	.endif
 #elif __LINUX_ARM_ARCH__ == 6
 	ALT_SMP(mcr	p15, 0, r0, c7, c10, 5)	@ dmb
@@ -358,27 +358,6 @@ THUMB(	orr	\reg , \reg , #PSR_T_BIT	)
 	adds	\tmp, \addr, #\size - 1
 	sbcccs	\tmp, \tmp, \limit
 	bcs	\bad
-#endif
-	.endm
-
-	.irp	c,,eq,ne,cs,cc,mi,pl,vs,vc,hi,ls,ge,lt,gt,le,hs,lo
-	.macro	ret\c, reg
-#if __LINUX_ARM_ARCH__ < 6
-	mov\c	pc, \reg
-#else
-	.ifeqs	"\reg", "lr"
-	bx\c	\reg
-	.else
-	mov\c	pc, \reg
-	.endif
-#endif
-	.endm
-	.endr
-
-	.macro	ret.w, reg
-	ret	\reg
-#ifdef CONFIG_THUMB2_KERNEL
-	nop
 #endif
 	.endm
 

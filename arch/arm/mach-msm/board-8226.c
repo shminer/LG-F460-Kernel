@@ -36,15 +36,15 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/time.h>
 #include <mach/board.h>
-#include <linux/msm-bus.h>
+#include <mach/msm_bus.h>
 #include <mach/gpiomux.h>
 #include <mach/msm_iomap.h>
 #include <mach/restart.h>
 #include <mach/msm_memtypes.h>
 #include <soc/qcom/socinfo.h>
 #include <mach/board.h>
+#include <mach/msm_smd.h>
 #include <soc/qcom/rpm-smd.h>
-#include <soc/qcom/smd.h>
 #include <soc/qcom/smem.h>
 #include <linux/msm_thermal.h>
 #include <soc/qcom/spm.h>

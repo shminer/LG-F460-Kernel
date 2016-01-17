@@ -105,15 +105,12 @@ struct cpuidle_driver {
 	struct module 		*owner;
 	int                     refcnt;
 
-    /* used by the cpuidle framework to setup the broadcast timer */
+        /* used by the cpuidle framework to setup the broadcast timer */
 	unsigned int            bctimer:1;
 	/* states array must be ordered in decreasing power consumption */
 	struct cpuidle_state	states[CPUIDLE_STATE_MAX];
 	int			state_count;
 	int			safe_state_index;
-
-	/* the driver handles the cpus in cpumask */
-	struct cpumask       *cpumask;
 };
 
 #ifdef CONFIG_CPU_IDLE
@@ -138,6 +135,9 @@ extern void cpuidle_disable_device(struct cpuidle_device *dev);
 extern int cpuidle_play_dead(void);
 
 extern struct cpuidle_driver *cpuidle_get_cpu_driver(struct cpuidle_device *dev);
+extern int cpuidle_register_cpu_driver(struct cpuidle_driver *drv, int cpu);
+extern void cpuidle_unregister_cpu_driver(struct cpuidle_driver *drv, int cpu);
+
 #else
 static inline void disable_cpuidle(void) { }
 static inline int cpuidle_idle_call(void) { return -ENODEV; }
@@ -194,10 +194,16 @@ struct cpuidle_governor {
 };
 
 #ifdef CONFIG_CPU_IDLE
+
 extern int cpuidle_register_governor(struct cpuidle_governor *gov);
+extern void cpuidle_unregister_governor(struct cpuidle_governor *gov);
+
 #else
+
 static inline int cpuidle_register_governor(struct cpuidle_governor *gov)
 {return 0;}
+static inline void cpuidle_unregister_governor(struct cpuidle_governor *gov) { }
+
 #endif
 
 #ifdef CONFIG_ARCH_HAS_CPU_RELAX

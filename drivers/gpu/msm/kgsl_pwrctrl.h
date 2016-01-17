@@ -111,7 +111,7 @@ struct kgsl_pwrctrl {
 	unsigned int max_pwrlevel;
 	unsigned int min_pwrlevel;
 	unsigned int num_pwrlevels;
-	unsigned long interval_timeout;
+	unsigned int interval_timeout;
 	bool strtstp_sleepwake;
 	struct regulator *gpu_reg;
 	struct regulator *gpu_cx;
@@ -145,6 +145,7 @@ void kgsl_pwrctrl_uninit_sysfs(struct kgsl_device *device);
 void kgsl_pwrctrl_enable(struct kgsl_device *device);
 void kgsl_pwrctrl_disable(struct kgsl_device *device);
 bool kgsl_pwrctrl_isenabled(struct kgsl_device *device);
+bool kgsl_pwrrail_isenabled(struct kgsl_device *device);
 
 static inline unsigned long kgsl_get_clkrate(struct clk *clk)
 {
@@ -169,5 +170,7 @@ void kgsl_pwrctrl_request_state(struct kgsl_device *device, unsigned int state);
 int __must_check kgsl_active_count_get(struct kgsl_device *device);
 void kgsl_active_count_put(struct kgsl_device *device);
 int kgsl_active_count_wait(struct kgsl_device *device, int count);
+void kgsl_pwrctrl_clk(struct kgsl_device *device, int state,
+				int requested_state);
 
 #endif /* __KGSL_PWRCTRL_H */

@@ -267,7 +267,6 @@ static struct bw_hwmon cpubw_hwmon = {
 /* ********** Cache reqs specific code  ********** */
 
 static u32 prev_req_start_val;
-static int cache_irq;
 
 static void mon_mrps_init(void)
 {
@@ -299,13 +298,13 @@ static unsigned int mrps_to_count(unsigned int mrps, unsigned int ms,
 	return mrps;
 }
 
-static unsigned long meas_mrps_and_set_irq(struct cache_hwmon *hw,
+static unsigned long meas_mrps_and_set_irq(struct devfreq *df,
 					unsigned int tol, unsigned int us,
 					struct mrps_stats *mrps)
 {
 	u32 limit;
-	unsigned int sample_ms = hw->df->profile->polling_ms;
-	unsigned long f = hw->df->previous_freq;
+	unsigned int sample_ms = df->profile->polling_ms;
+	unsigned long f = df->previous_freq;
 	unsigned long t_mrps, m_mrps, l2_cyc;
 
 	mon_disable(L2_H_REQ_MON);
@@ -328,42 +327,29 @@ static unsigned long meas_mrps_and_set_irq(struct cache_hwmon *hw,
 	mon_enable(L2_M_REQ_MON);
 	mon_enable(L2_CYC_MON);
 
-	mrps->mrps[HIGH] = t_mrps - m_mrps;
-	mrps->mrps[MED] = m_mrps;
-	mrps->mrps[LOW] = 0;
+	mrps->high = t_mrps - m_mrps;
+	mrps->med = m_mrps;
+	mrps->low = 0;
 	mrps->busy_percent = mult_frac(l2_cyc, 1000, us) * 100 / f;
 
 	return 0;
 }
 
-static irqreturn_t mon_intr_handler(int irq, void *dev)
+static bool is_valid_mrps_irq(struct devfreq *df)
 {
-	if (mon_overflow(L2_H_REQ_MON) || mon_overflow(L2_M_REQ_MON)) {
-		update_cache_hwmon(dev);
-		return IRQ_HANDLED;
-	}
-	return IRQ_NONE;
+	return mon_overflow(L2_H_REQ_MON) || mon_overflow(L2_M_REQ_MON);
 }
 
-static int start_mrps_hwmon(struct cache_hwmon *hw, struct mrps_stats *mrps)
+static int start_mrps_hwmon(struct devfreq *df, struct mrps_stats *mrps)
 {
 	u32 limit;
-	int ret;
-
-	ret = request_threaded_irq(cache_irq, NULL, mon_intr_handler,
-			  IRQF_ONESHOT | IRQF_SHARED,
-			  "cache_hwmon", hw);
-	if (ret) {
-		pr_err("Unable to register interrupt handler!\n");
-		return ret;
-	}
 
 	mon_mrps_init();
 	mon_disable(L2_H_REQ_MON);
 	mon_disable(L2_M_REQ_MON);
 	mon_disable(L2_CYC_MON);
 
-	limit = mrps_to_count(mrps->mrps[HIGH], hw->df->profile->polling_ms, 0);
+	limit = mrps_to_count(mrps->high, df->profile->polling_ms, 0);
 	prev_req_start_val = mon_set_limit(L2_H_REQ_MON, limit);
 	mon_set_limit(L2_M_REQ_MON, 0xFFFFFFFF);
 	mon_set_limit(L2_CYC_MON, 0xFFFFFFFF);
@@ -378,10 +364,8 @@ static int start_mrps_hwmon(struct cache_hwmon *hw, struct mrps_stats *mrps)
 	return 0;
 }
 
-static void stop_mrps_hwmon(struct cache_hwmon *hw)
+static void stop_mrps_hwmon(struct devfreq *df)
 {
-	disable_irq(cache_irq);
-	free_irq(cache_irq, hw);
 	global_mon_enable(false);
 	mon_disable(L2_H_REQ_MON);
 	mon_disable(L2_M_REQ_MON);
@@ -393,6 +377,7 @@ static void stop_mrps_hwmon(struct cache_hwmon *hw)
 static struct cache_hwmon mrps_hwmon = {
 	.start_hwmon = &start_mrps_hwmon,
 	.stop_hwmon = &stop_mrps_hwmon,
+	.is_valid_irq = &is_valid_mrps_irq,
 	.meas_mrps_and_set_irq = &meas_mrps_and_set_irq,
 };
 
@@ -408,6 +393,7 @@ static int krait_l2pm_driver_probe(struct platform_device *pdev)
 		pr_err("Unable to get IRQ number\n");
 		return bw_irq;
 	}
+	mrps_hwmon.irq = bw_irq;
 
 	ret = of_property_read_u32(dev->of_node, "qcom,bytes-per-beat",
 					&bytes_per_beat);
@@ -420,13 +406,7 @@ static int krait_l2pm_driver_probe(struct platform_device *pdev)
 	if (ret)
 		pr_err("CPUBW hwmon registration failed\n");
 
-	cache_irq = bw_irq;
-	mrps_hwmon.of_node = of_parse_phandle(dev->of_node, "qcom,target-dev",
-					      0);
-	if (!mrps_hwmon.of_node)
-		return -EINVAL;
-
-	ret2 = register_cache_hwmon(dev, &mrps_hwmon);
+	ret2 = register_cache_hwmon(&mrps_hwmon);
 	if (ret2)
 		pr_err("Cache hwmon registration failed\n");
 

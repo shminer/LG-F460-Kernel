@@ -47,10 +47,10 @@ struct mmc_queue {
 	struct mmc_card		*card;
 	struct task_struct	*thread;
 	struct semaphore	thread_sem;
-	unsigned long		flags;
-#define MMC_QUEUE_SUSPENDED		0
-#define MMC_QUEUE_NEW_REQUEST		1
-#define MMC_QUEUE_URGENT_REQUEST	2
+	unsigned int		flags;
+#define MMC_QUEUE_SUSPENDED		(1 << 0)
+#define MMC_QUEUE_NEW_REQUEST		(1 << 1)
+#define MMC_QUEUE_URGENT_REQUEST	(1 << 2)
 
 	int			(*issue_fn)(struct mmc_queue *, struct request *);
 	void			*data;
@@ -81,7 +81,5 @@ extern int mmc_packed_init(struct mmc_queue *, struct mmc_card *);
 extern void mmc_packed_clean(struct mmc_queue *);
 
 extern void print_mmc_packing_stats(struct mmc_card *card);
-
-extern int mmc_access_rpmb(struct mmc_queue *);
 
 #endif

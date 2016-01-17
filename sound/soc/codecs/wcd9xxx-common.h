@@ -44,17 +44,17 @@
 #define WCD9XXX_CLSAB_REQ_ENABLE  true
 #define WCD9XXX_CLSAB_REQ_DISABLE false
 
-#define WCD9XXX_NON_UHQA_MODE	0
-
 #define WCD9XXX_DMIC_SAMPLE_RATE_DIV_2    0x0
 #define WCD9XXX_DMIC_SAMPLE_RATE_DIV_3    0x1
 #define WCD9XXX_DMIC_SAMPLE_RATE_DIV_4    0x2
 
-#define WCD9XXX_DMIC_CLK_DIV_2 0x00
-#define WCD9XXX_DMIC_CLK_DIV_3 0x01
-#define WCD9XXX_DMIC_CLK_DIV_4 0x02
-#define WCD9XXX_DMIC_CLK_DIV_6 0x03
-#define WCD9XXX_DMIC_CLK_DIV_16 0x04
+#define WCD9XXX_DMIC_B1_CTL_DIV_2 0x00
+#define WCD9XXX_DMIC_B1_CTL_DIV_3 0x22
+#define WCD9XXX_DMIC_B1_CTL_DIV_4 0x44
+
+#define WCD9XXX_DMIC_B2_CTL_DIV_2 0x00
+#define WCD9XXX_DMIC_B2_CTL_DIV_3 0x02
+#define WCD9XXX_DMIC_B2_CTL_DIV_4 0x04
 
 #define WCD9XXX_ANC_DMIC_X2_ON    0x1
 #define WCD9XXX_ANC_DMIC_X2_OFF   0x0
@@ -183,7 +183,7 @@ extern void wcd9xxx_clsh_fsm(struct snd_soc_codec *codec,
 
 extern void wcd9xxx_enable_high_perf_mode(struct snd_soc_codec *codec,
 				struct wcd9xxx_clsh_cdc_data *clsh_d,
-				u8 uhqa_mode, u8 req_state, bool req_type);
+				u8 req_state, bool req_type);
 
 extern void wcd9xxx_clsh_init(struct wcd9xxx_clsh_cdc_data *clsh,
 			      struct wcd9xxx_resmgr *resmgr);
@@ -261,23 +261,6 @@ enum {
 	SPKR_CLIPDET_VAL5,
 	SPKR_CLIPDET_VAL6,
 	SPKR_CLIPDET_VAL7,
-	VBAT_RELEASE_INT_DEST_SELECT_REG,
-	VBAT_RELEASE_INT_MASK_REG,
-	VBAT_RELEASE_INT_STATUS_REG,
-	VBAT_RELEASE_INT_CLEAR_REG,
-	MAD2_CLIP_INT_DEST_SELECT_REG,
-	MAD2_CLIP_INT_MASK_REG,
-	MAD2_CLIP_INT_STATUS_REG,
-	MAD2_CLIP_INT_CLEAR_REG,
-	SPKR2_CLIP_PIPE_BANK_SEL,
-	SPKR2_CLIPDET_VAL0,
-	SPKR2_CLIPDET_VAL1,
-	SPKR2_CLIPDET_VAL2,
-	SPKR2_CLIPDET_VAL3,
-	SPKR2_CLIPDET_VAL4,
-	SPKR2_CLIPDET_VAL5,
-	SPKR2_CLIPDET_VAL6,
-	SPKR2_CLIPDET_VAL7,
 	MAX_CFG_REGISTERS,
 };
 

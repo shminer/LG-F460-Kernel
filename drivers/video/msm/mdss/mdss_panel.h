@@ -167,10 +167,6 @@ enum mdss_intf_events {
 	MDSS_EVENT_DSI_CMDLIST_KOFF,
 	MDSS_EVENT_ENABLE_PARTIAL_ROI,
 	MDSS_EVENT_DSI_STREAM_SIZE,
-	/* sharpening control */
-	MDSS_EVENT_SET_SHARPENING,
-	MDSS_EVENT_QUEUE_SHARPENING,
-	/* sharpening control */
 };
 
 struct lcd_panel_info {
@@ -356,7 +352,6 @@ struct mdss_panel_info {
 	struct ion_handle *splash_ihdl;
 	int panel_power_state;
 	int blank_state;
-	int sharpening_level;
 	bool is_split_display;
 
 	uint32_t panel_dead;

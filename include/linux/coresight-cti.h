@@ -77,8 +77,6 @@ static inline int coresight_cti_enable_gate(struct coresight_cti *cti, int ch)
 }
 static inline void coresight_cti_disable_gate(struct coresight_cti *cti, int ch)
 {}
-static inline void coresight_cti_ctx_save(void){}
-static inline void coresight_cti_ctx_restore(void){}
 #endif
 
 #endif

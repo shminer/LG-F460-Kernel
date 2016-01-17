@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,7 +16,7 @@
 #include <linux/errno.h>
 #include <linux/file.h>
 #include <linux/msm_ion.h>
-#include <linux/qcom_iommu.h>
+#include <linux/iommu.h>
 #include <linux/msm_kgsl.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
@@ -526,6 +526,10 @@ static int mdss_mdp_put_img(struct mdss_mdp_img_data *data)
 				ion_unmap_iommu(iclient, data->srcp_ihdl,
 					mdss_get_iommu_domain(domain), 0);
 
+				if (domain == MDSS_IOMMU_DOMAIN_SECURE) {
+					msm_ion_unsecure_buffer(iclient,
+							data->srcp_ihdl);
+				}
 				data->mapped = false;
 			}
 			ion_free(iclient, data->srcp_ihdl);
@@ -624,15 +628,28 @@ static int mdss_mdp_map_buffer(struct mdss_mdp_img_data *data)
 	if (!IS_ERR_OR_NULL(data->srcp_ihdl)) {
 		if (is_mdss_iommu_attached()) {
 			int domain;
-			if (data->flags & MDP_SECURE_OVERLAY_SESSION)
+			if (data->flags & MDP_SECURE_OVERLAY_SESSION) {
 				domain = MDSS_IOMMU_DOMAIN_SECURE;
-			else
+				ret = msm_ion_secure_buffer(iclient,
+					data->srcp_ihdl, 0x2, 0);
+				if (IS_ERR_VALUE(ret)) {
+					ion_free(iclient, data->srcp_ihdl);
+					pr_err("failed to secure handle (%d)\n",
+						ret);
+					return ret;
+				}
+			} else {
 				domain = MDSS_IOMMU_DOMAIN_UNSECURE;
+			}
 
 			ret = ion_map_iommu(iclient, data->srcp_ihdl,
 						mdss_get_iommu_domain(domain),
 						0, SZ_4K, 0, &data->addr,
 						&data->len, 0, 0);
+			if (ret && (domain == MDSS_IOMMU_DOMAIN_SECURE))
+				msm_ion_unsecure_buffer(iclient,
+						data->srcp_ihdl);
+
 			data->mapped = true;
 		} else {
 			ret = ion_phys(iclient, data->srcp_ihdl,

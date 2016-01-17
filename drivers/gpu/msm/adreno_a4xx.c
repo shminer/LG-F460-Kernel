@@ -450,16 +450,15 @@ static void a4xx_start(struct adreno_device *adreno_dev)
 	a4xx_protect_init(device);
 }
 
-int a4xx_perfcounter_enable_vbif(struct adreno_device *adreno_dev,
+int a4xx_perfcounter_enable_vbif(struct kgsl_device *device,
 				unsigned int counter,
 				unsigned int countable)
 {
-	struct kgsl_device *device = &adreno_dev->dev;
-	struct adreno_perfcounters *counters = ADRENO_PERFCOUNTERS(adreno_dev);
+	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
+	struct adreno_perfcounters *counters = adreno_dev->gpudev->perfcounters;
 	struct adreno_perfcount_register *reg;
 
-	if (counters == NULL ||
-		(counter > 3 || countable > A4XX_VBIF_PERF_CNT_SEL_MASK))
+	if (counter > 3 || countable > A4XX_VBIF_PERF_CNT_SEL_MASK)
 		return -EINVAL;
 
 	reg = &counters->groups[KGSL_PERFCOUNTER_GROUP_VBIF].regs[counter];
@@ -469,39 +468,36 @@ int a4xx_perfcounter_enable_vbif(struct adreno_device *adreno_dev,
 			countable & A4XX_VBIF_PERF_CNT_SEL_MASK);
 	/* enable reg is 8 DWORDS before select reg */
 	kgsl_regwrite(device, reg->select - A4XX_VBIF_PERF_EN_REG_SEL_OFF, 1);
-	/* reset the saved value field */
-	counters->groups[KGSL_PERFCOUNTER_GROUP_VBIF].regs[counter].value = 0;
 	return 0;
 }
 
-uint64_t a4xx_perfcounter_read_vbif(struct adreno_device *adreno_dev,
+uint64_t a4xx_perfcounter_read_vbif(struct kgsl_device *device,
 					unsigned int counter)
 {
-	struct adreno_perfcounters *counters = ADRENO_PERFCOUNTERS(adreno_dev);
+	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
+	struct adreno_perfcounters *counters = adreno_dev->gpudev->perfcounters;
 	struct adreno_perfcount_register *reg;
 	unsigned int lo = 0, hi = 0;
 
-	if (counters == NULL || counter > 3)
+	if (counter > 3)
 		return 0;
 
 	reg = &counters->groups[KGSL_PERFCOUNTER_GROUP_VBIF].regs[counter];
 
-	kgsl_regread(&adreno_dev->dev, reg->offset, &lo);
-	kgsl_regread(&adreno_dev->dev, reg->offset_hi, &hi);
+	kgsl_regread(device, reg->offset, &lo);
+	kgsl_regread(device, reg->offset_hi, &hi);
 
-	return ((((uint64_t) hi) << 32) | lo)
-		+ counters->groups[KGSL_PERFCOUNTER_GROUP_VBIF]
-				.regs[counter].value;
+	return (((uint64_t) hi) << 32) | lo;
 }
 
-int a4xx_perfcounter_enable_vbif_pwr(struct adreno_device *adreno_dev,
+int a4xx_perfcounter_enable_vbif_pwr(struct kgsl_device *device,
 					unsigned int counter)
 {
-	struct kgsl_device *device = &adreno_dev->dev;
-	struct adreno_perfcounters *counters = ADRENO_PERFCOUNTERS(adreno_dev);
+	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
+	struct adreno_perfcounters *counters = adreno_dev->gpudev->perfcounters;
 	struct adreno_perfcount_register *reg;
 
-	if (counters == NULL || counter > 3)
+	if (counter > 3)
 		return -EINVAL;
 
 	reg = &counters->groups[KGSL_PERFCOUNTER_GROUP_VBIF_PWR].regs[counter];
@@ -515,30 +511,26 @@ int a4xx_perfcounter_enable_vbif_pwr(struct adreno_device *adreno_dev,
 	kgsl_regwrite(device, reg->select + A4XX_VBIF_PERF_PWR_CLR_REG_EN_OFF,
 			0);
 	kgsl_regwrite(device, reg->select, 1);
-	/* reset the saved value field */
-	counters->groups[KGSL_PERFCOUNTER_GROUP_VBIF_PWR]
-				.regs[counter].value = 0;
 	return 0;
 }
 
-uint64_t a4xx_perfcounter_read_vbif_pwr(struct adreno_device *adreno_dev,
+uint64_t a4xx_perfcounter_read_vbif_pwr(struct kgsl_device *device,
 						unsigned int counter)
 {
-	struct adreno_perfcounters *counters = ADRENO_PERFCOUNTERS(adreno_dev);
+	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
+	struct adreno_perfcounters *counters = adreno_dev->gpudev->perfcounters;
 	struct adreno_perfcount_register *reg;
 	unsigned int lo = 0, hi = 0;
 
-	 if (counters == NULL || counter > 3)
+	 if (counter > 3)
 		return 0;
 
 	reg = &counters->groups[KGSL_PERFCOUNTER_GROUP_VBIF_PWR].regs[counter];
 
-	kgsl_regread(&adreno_dev->dev, reg->offset, &lo);
-	kgsl_regread(&adreno_dev->dev, reg->offset_hi, &hi);
+	kgsl_regread(device, reg->offset, &lo);
+	kgsl_regread(device, reg->offset_hi, &hi);
 
-	return ((((uint64_t) hi) << 32) | lo)
-		+ counters->groups[KGSL_PERFCOUNTER_GROUP_VBIF_PWR]
-						.regs[counter].value;
+	return (((uint64_t) hi) << 32) | lo;
 }
 
 uint64_t a4xx_alwayson_counter_read(struct adreno_device *adreno_dev)
@@ -591,20 +583,24 @@ static void a4xx_err_callback(struct adreno_device *adreno_dev, int bit)
 
 /* Register offset defines for A4XX, in order of enum adreno_regs */
 static unsigned int a4xx_register_offsets[ADRENO_REG_REGISTER_MAX] = {
+	ADRENO_REG_DEFINE(ADRENO_REG_CP_DEBUG, A4XX_CP_DEBUG),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_ME_RAM_WADDR, A4XX_CP_ME_RAM_WADDR),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_ME_RAM_DATA, A4XX_CP_ME_RAM_DATA),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_PFP_UCODE_DATA, A4XX_CP_PFP_UCODE_DATA),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_PFP_UCODE_ADDR, A4XX_CP_PFP_UCODE_ADDR),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_WFI_PEND_CTR, A4XX_CP_WFI_PEND_CTR),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_RB_BASE, A4XX_CP_RB_BASE),
+	ADRENO_REG_DEFINE(ADRENO_REG_CP_RB_RPTR_ADDR, A4XX_CP_RB_RPTR_ADDR),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_RB_RPTR, A4XX_CP_RB_RPTR),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_RB_WPTR, A4XX_CP_RB_WPTR),
+	ADRENO_REG_DEFINE(ADRENO_REG_CP_PROTECT_CTRL, A4XX_CP_PROTECT_CTRL),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_ME_CNTL, A4XX_CP_ME_CNTL),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_RB_CNTL, A4XX_CP_RB_CNTL),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_IB1_BASE, A4XX_CP_IB1_BASE),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_IB1_BUFSZ, A4XX_CP_IB1_BUFSZ),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_IB2_BASE, A4XX_CP_IB2_BASE),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_IB2_BUFSZ, A4XX_CP_IB2_BUFSZ),
+	ADRENO_REG_DEFINE(ADRENO_REG_CP_TIMESTAMP, A4XX_CP_SCRATCH_REG0),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_ME_RAM_RADDR, A4XX_CP_ME_RAM_RADDR),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_ROQ_ADDR, A4XX_CP_ROQ_ADDR),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_ROQ_DATA, A4XX_CP_ROQ_DATA),
@@ -615,6 +611,8 @@ static unsigned int a4xx_register_offsets[ADRENO_REG_REGISTER_MAX] = {
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_MEQ_DATA, A4XX_CP_MEQ_DATA),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_HW_FAULT, A4XX_CP_HW_FAULT),
 	ADRENO_REG_DEFINE(ADRENO_REG_CP_PROTECT_STATUS, A4XX_CP_PROTECT_STATUS),
+	ADRENO_REG_DEFINE(ADRENO_REG_SCRATCH_ADDR, A4XX_CP_SCRATCH_ADDR),
+	ADRENO_REG_DEFINE(ADRENO_REG_SCRATCH_UMSK, A4XX_CP_SCRATCH_UMASK),
 	ADRENO_REG_DEFINE(ADRENO_REG_RBBM_STATUS, A4XX_RBBM_STATUS),
 	ADRENO_REG_DEFINE(ADRENO_REG_RBBM_PERFCTR_CTL, A4XX_RBBM_PERFCTR_CTL),
 	ADRENO_REG_DEFINE(ADRENO_REG_RBBM_PERFCTR_LOAD_CMD0,
@@ -641,6 +639,24 @@ static unsigned int a4xx_register_offsets[ADRENO_REG_REGISTER_MAX] = {
 					A4XX_VPC_DEBUG_RAM_READ),
 	ADRENO_REG_DEFINE(ADRENO_REG_RBBM_INT_CLEAR_CMD,
 				A4XX_RBBM_INT_CLEAR_CMD),
+	ADRENO_REG_DEFINE(ADRENO_REG_VSC_PIPE_DATA_ADDRESS_0,
+				A4XX_VSC_PIPE_DATA_ADDRESS_0),
+	ADRENO_REG_DEFINE(ADRENO_REG_VSC_PIPE_DATA_LENGTH_7,
+					A4XX_VSC_PIPE_DATA_LENGTH_7),
+	ADRENO_REG_DEFINE(ADRENO_REG_VSC_SIZE_ADDRESS, A4XX_VSC_SIZE_ADDRESS),
+	ADRENO_REG_DEFINE(ADRENO_REG_VFD_CONTROL_0, A4XX_VFD_CONTROL_0),
+	ADRENO_REG_DEFINE(ADRENO_REG_VFD_FETCH_INSTR_0_0,
+					A4XX_VFD_FETCH_INSTR_0_0),
+	ADRENO_REG_DEFINE(ADRENO_REG_VFD_FETCH_INSTR_1_F,
+					A4XX_VFD_FETCH_INSTR_1_31),
+	ADRENO_REG_DEFINE(ADRENO_REG_SP_VS_PVT_MEM_ADDR_REG,
+				A4XX_SP_VS_PVT_MEM_ADDR),
+	ADRENO_REG_DEFINE(ADRENO_REG_SP_FS_PVT_MEM_ADDR_REG,
+				A4XX_SP_FS_PVT_MEM_ADDR),
+	ADRENO_REG_DEFINE(ADRENO_REG_SP_VS_OBJ_START_REG,
+				A4XX_SP_VS_OBJ_START),
+	ADRENO_REG_DEFINE(ADRENO_REG_SP_FS_OBJ_START_REG,
+				A4XX_SP_FS_OBJ_START),
 	ADRENO_REG_DEFINE(ADRENO_REG_RBBM_RBBM_CTL, A4XX_RBBM_RBBM_CTL),
 	ADRENO_REG_DEFINE(ADRENO_REG_RBBM_SW_RESET_CMD, A4XX_RBBM_SW_RESET_CMD),
 	ADRENO_REG_DEFINE(ADRENO_REG_UCHE_INVALIDATE0, A4XX_UCHE_INVALIDATE0),
@@ -996,6 +1012,132 @@ static const struct adreno_invalid_countables
 	ADRENO_PERFCOUNTER_INVALID_COUNTABLE(uche, UCHE),
 };
 
+static struct adreno_coresight_register a4xx_coresight_registers[] = {
+	{ A4XX_RBBM_CFG_DEBBUS_CTLT },
+	{ A4XX_RBBM_CFG_DEBBUS_SEL_A },
+	{ A4XX_RBBM_CFG_DEBBUS_SEL_B },
+	{ A4XX_RBBM_CFG_DEBBUS_SEL_C },
+	{ A4XX_RBBM_CFG_DEBBUS_SEL_D },
+	{ A4XX_RBBM_CFG_DEBBUS_OPL },
+	{ A4XX_RBBM_CFG_DEBBUS_OPE },
+	{ A4XX_RBBM_CFG_DEBBUS_IVTL_0 },
+	{ A4XX_RBBM_CFG_DEBBUS_IVTL_1 },
+	{ A4XX_RBBM_CFG_DEBBUS_IVTL_2 },
+	{ A4XX_RBBM_CFG_DEBBUS_IVTL_3 },
+	{ A4XX_RBBM_CFG_DEBBUS_MASKL_0 },
+	{ A4XX_RBBM_CFG_DEBBUS_MASKL_1 },
+	{ A4XX_RBBM_CFG_DEBBUS_MASKL_2 },
+	{ A4XX_RBBM_CFG_DEBBUS_MASKL_3 },
+	{ A4XX_RBBM_CFG_DEBBUS_BYTEL_0 },
+	{ A4XX_RBBM_CFG_DEBBUS_BYTEL_1 },
+	{ A4XX_RBBM_CFG_DEBBUS_IVTE_0 },
+	{ A4XX_RBBM_CFG_DEBBUS_IVTE_1 },
+	{ A4XX_RBBM_CFG_DEBBUS_IVTE_2 },
+	{ A4XX_RBBM_CFG_DEBBUS_IVTE_3 },
+	{ A4XX_RBBM_CFG_DEBBUS_MASKE_0 },
+	{ A4XX_RBBM_CFG_DEBBUS_MASKE_1 },
+	{ A4XX_RBBM_CFG_DEBBUS_MASKE_2 },
+	{ A4XX_RBBM_CFG_DEBBUS_MASKE_3 },
+	{ A4XX_RBBM_CFG_DEBBUS_NIBBLEE },
+	{ A4XX_RBBM_CFG_DEBBUS_PTRC0 },
+	{ A4XX_RBBM_CFG_DEBBUS_PTRC1 },
+	{ A4XX_RBBM_CFG_DEBBUS_CLRC },
+	{ A4XX_RBBM_CFG_DEBBUS_LOADIVT },
+	{ A4XX_RBBM_CFG_DEBBUS_IDX },
+	{ A4XX_RBBM_CFG_DEBBUS_LOADREG },
+	{ A4XX_RBBM_EXT_TRACE_BUS_CTL },
+	{ A4XX_RBBM_CFG_DEBBUS_CTLM },
+};
+
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ctrlt, &a4xx_coresight_registers[0]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_sela, &a4xx_coresight_registers[1]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_selb, &a4xx_coresight_registers[2]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_selc, &a4xx_coresight_registers[3]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_seld, &a4xx_coresight_registers[4]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_opl, &a4xx_coresight_registers[5]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ope, &a4xx_coresight_registers[6]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ivtl0, &a4xx_coresight_registers[7]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ivtl1, &a4xx_coresight_registers[8]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ivtl2, &a4xx_coresight_registers[9]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ivtl3, &a4xx_coresight_registers[10]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_maskl0, &a4xx_coresight_registers[11]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_maskl1, &a4xx_coresight_registers[12]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_maskl2, &a4xx_coresight_registers[13]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_maskl3, &a4xx_coresight_registers[14]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_bytel0, &a4xx_coresight_registers[15]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_bytel1, &a4xx_coresight_registers[16]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ivte0, &a4xx_coresight_registers[17]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ivte1, &a4xx_coresight_registers[18]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ivte2, &a4xx_coresight_registers[19]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ivte3, &a4xx_coresight_registers[20]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_maske0, &a4xx_coresight_registers[21]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_maske1, &a4xx_coresight_registers[22]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_maske2, &a4xx_coresight_registers[23]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_maske3, &a4xx_coresight_registers[24]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_nibblee, &a4xx_coresight_registers[25]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ptrc0, &a4xx_coresight_registers[26]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ptrc1, &a4xx_coresight_registers[27]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_clrc, &a4xx_coresight_registers[28]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_loadivt, &a4xx_coresight_registers[29]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_idx, &a4xx_coresight_registers[30]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_loadreg, &a4xx_coresight_registers[31]);
+static ADRENO_CORESIGHT_ATTR(ext_tracebus_ctl, &a4xx_coresight_registers[32]);
+static ADRENO_CORESIGHT_ATTR(cfg_debbus_ctrlm, &a4xx_coresight_registers[33]);
+
+
+static struct attribute *a4xx_coresight_attrs[] = {
+	&coresight_attr_cfg_debbus_ctrlt.attr.attr,
+	&coresight_attr_cfg_debbus_sela.attr.attr,
+	&coresight_attr_cfg_debbus_selb.attr.attr,
+	&coresight_attr_cfg_debbus_selc.attr.attr,
+	&coresight_attr_cfg_debbus_seld.attr.attr,
+	&coresight_attr_cfg_debbus_opl.attr.attr,
+	&coresight_attr_cfg_debbus_ope.attr.attr,
+	&coresight_attr_cfg_debbus_ivtl0.attr.attr,
+	&coresight_attr_cfg_debbus_ivtl1.attr.attr,
+	&coresight_attr_cfg_debbus_ivtl2.attr.attr,
+	&coresight_attr_cfg_debbus_ivtl3.attr.attr,
+	&coresight_attr_cfg_debbus_maskl0.attr.attr,
+	&coresight_attr_cfg_debbus_maskl1.attr.attr,
+	&coresight_attr_cfg_debbus_maskl2.attr.attr,
+	&coresight_attr_cfg_debbus_maskl3.attr.attr,
+	&coresight_attr_cfg_debbus_bytel0.attr.attr,
+	&coresight_attr_cfg_debbus_bytel1.attr.attr,
+	&coresight_attr_cfg_debbus_ivte0.attr.attr,
+	&coresight_attr_cfg_debbus_ivte1.attr.attr,
+	&coresight_attr_cfg_debbus_ivte2.attr.attr,
+	&coresight_attr_cfg_debbus_ivte3.attr.attr,
+	&coresight_attr_cfg_debbus_maske0.attr.attr,
+	&coresight_attr_cfg_debbus_maske1.attr.attr,
+	&coresight_attr_cfg_debbus_maske2.attr.attr,
+	&coresight_attr_cfg_debbus_maske3.attr.attr,
+	&coresight_attr_cfg_debbus_nibblee.attr.attr,
+	&coresight_attr_cfg_debbus_ptrc0.attr.attr,
+	&coresight_attr_cfg_debbus_ptrc1.attr.attr,
+	&coresight_attr_cfg_debbus_clrc.attr.attr,
+	&coresight_attr_cfg_debbus_loadivt.attr.attr,
+	&coresight_attr_cfg_debbus_idx.attr.attr,
+	&coresight_attr_cfg_debbus_loadreg.attr.attr,
+	&coresight_attr_ext_tracebus_ctl.attr.attr,
+	&coresight_attr_cfg_debbus_ctrlm.attr.attr,
+	NULL,
+};
+
+static const struct attribute_group a4xx_coresight_group = {
+	.attrs = a4xx_coresight_attrs,
+};
+
+static const struct attribute_group *a4xx_coresight_groups[] = {
+	&a4xx_coresight_group,
+	NULL,
+};
+
+static struct adreno_coresight a4xx_coresight = {
+	.registers = a4xx_coresight_registers,
+	.count = ARRAY_SIZE(a4xx_coresight_registers),
+	.groups = a4xx_coresight_groups,
+};
+
 #define A4XX_INT_MASK \
 	((1 << A3XX_INT_RBBM_AHB_ERROR) |		\
 	 (1 << A3XX_INT_RBBM_REG_TIMEOUT) |		\
@@ -1094,6 +1236,7 @@ struct adreno_gpudev adreno_a4xx_gpudev = {
 	.irq_handler = a3xx_irq_handler,
 	.irq_pending = a3xx_irq_pending,
 	.busy_cycles = a3xx_busy_cycles,
+	.coresight = &a4xx_coresight,
 	.start = a4xx_start,
 	.perfcounter_enable = a3xx_perfcounter_enable,
 	.perfcounter_read = a3xx_perfcounter_read,

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -422,7 +422,7 @@ static int dispatcher_context_sendcmds(struct adreno_device *adreno_dev,
 		 * against the burst for the context
 		 */
 
-		if (cmdbatch->flags & KGSL_CMDBATCH_SYNC) {
+		if (cmdbatch->flags & KGSL_CONTEXT_SYNC) {
 			kgsl_cmdbatch_destroy(cmdbatch);
 			continue;
 		}
@@ -616,7 +616,7 @@ static int get_timestamp(struct adreno_context *drawctxt,
 		struct kgsl_cmdbatch *cmdbatch, unsigned int *timestamp)
 {
 	/* Synchronization commands don't get a timestamp */
-	if (cmdbatch->flags & KGSL_CMDBATCH_SYNC) {
+	if (cmdbatch->flags & KGSL_CONTEXT_SYNC) {
 		*timestamp = 0;
 		return 0;
 	}
@@ -674,12 +674,8 @@ int adreno_dispatcher_queue_cmd(struct adreno_device *adreno_dev,
 	 */
 
 	if ((drawctxt->base.flags & KGSL_CONTEXT_CTX_SWITCH) ||
-		(cmdbatch->flags & KGSL_CMDBATCH_CTX_SWITCH))
+		(cmdbatch->flags & KGSL_CONTEXT_CTX_SWITCH))
 		set_bit(CMDBATCH_FLAG_FORCE_PREAMBLE, &cmdbatch->priv);
-
-	/* Skip this cmdbatch commands if IFH_NOP is enabled */
-	if (drawctxt->base.flags & KGSL_CONTEXT_IFH_NOP)
-		set_bit(CMDBATCH_FLAG_SKIP, &cmdbatch->priv);
 
 	/*
 	 * If we are waiting for the end of frame and it hasn't appeared yet,
@@ -695,7 +691,7 @@ int adreno_dispatcher_queue_cmd(struct adreno_device *adreno_dev,
 		 * for the dispatcher to continue submitting
 		 */
 
-		if (cmdbatch->flags & KGSL_CMDBATCH_END_OF_FRAME) {
+		if (cmdbatch->flags & KGSL_CONTEXT_END_OF_FRAME) {
 			clear_bit(ADRENO_CONTEXT_SKIP_EOF, &drawctxt->priv);
 
 			/*
@@ -910,7 +906,7 @@ static void cmdbatch_skip_frame(struct kgsl_cmdbatch *cmdbatch,
 		if (skip) {
 			set_bit(CMDBATCH_FLAG_SKIP, &replay[i]->priv);
 
-			if (replay[i]->flags & KGSL_CMDBATCH_END_OF_FRAME)
+			if (replay[i]->flags & KGSL_CONTEXT_END_OF_FRAME)
 				skip = 0;
 		} else {
 			set_bit(CMDBATCH_FLAG_FORCE_PREAMBLE, &replay[i]->priv);
@@ -1572,8 +1568,6 @@ done:
 		/* There are still things in flight - update the idle counts */
 		kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
 		kgsl_pwrscale_update(device);
-		mod_timer(&device->idle_timer, jiffies +
-				device->pwrctrl.interval_timeout);
 		kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
 	} else {
 		/* There is nothing left in the pipeline.  Shut 'er down boys */

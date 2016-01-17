@@ -21,6 +21,8 @@
 #ifdef CONFIG_LGE_PM
 #include <linux/regulator/machine.h>
 #endif
+#include <linux/msm_tsens.h>
+#include <linux/msm_thermal.h>
 #include <linux/clk/msm-clk-provider.h>
 #include <asm/mach/map.h>
 #include <asm/mach/arch.h>
@@ -28,7 +30,7 @@
 #include <mach/gpiomux.h>
 #include <mach/msm_iomap.h>
 #include <mach/msm_memtypes.h>
-#include <soc/qcom/smd.h>
+#include <mach/msm_smd.h>
 #include <mach/restart.h>
 #include <soc/qcom/socinfo.h>
 #include <soc/qcom/rpm-smd.h>
@@ -40,6 +42,15 @@
 #include "../platsmp.h"
 
 #include <mach/board_lge.h>
+
+#if defined(CONFIG_LGE_LCD_KCAL)
+/* LGE_CHANGE_S
+* change code for LCD KCAL
+* 2013-05-08, seojin.lee@lge.com
+*/
+#include <linux/module.h>
+#include "../../../../drivers/video/msm/mdss/mdss_fb.h"
+#endif /* CONFIG_LCD_KCAL */
 
 static struct of_dev_auxdata apq8084_auxdata_lookup[] __initdata = {
 	OF_DEV_AUXDATA("qcom,msm-sdcc", 0xF9824000, "msm_sdcc.1", NULL),
@@ -61,6 +72,76 @@ void __init apq8084_reserve(void)
 	of_scan_flat_dt(lge_init_dt_scan_chosen, NULL);
 #endif
 }
+
+static void __init apq8084_early_memory(void)
+{
+	of_scan_flat_dt(dt_scan_for_memory_hole, NULL);
+}
+
+#if defined(CONFIG_LGE_LCD_KCAL)
+/* LGE_CHANGE_S
+* change code for LCD KCAL
+* 2013-05-08, seojin.lee@lge.com
+*/
+int kcal_set_values(int kcal_r, int kcal_g, int kcal_b)
+{
+#if 0
+	int is_update = 0;
+
+	int kcal_r_limit = 250;
+	int kcal_g_limit = 250;
+	int kcal_b_limit = 253;
+
+	g_kcal_r = kcal_r < kcal_r_limit ? kcal_r_limit : kcal_r;
+	g_kcal_g = kcal_g < kcal_g_limit ? kcal_g_limit : kcal_g;
+	g_kcal_b = kcal_b < kcal_b_limit ? kcal_b_limit : kcal_b;
+
+	if (kcal_r < kcal_r_limit || kcal_g < kcal_g_limit
+			|| kcal_b < kcal_b_limit)
+		is_update = 1;
+
+	if (is_update)
+		update_preset_lcdc_lut();
+#else
+	g_kcal_r = kcal_r;
+	g_kcal_g = kcal_g;
+	g_kcal_b = kcal_b;
+#endif
+	return 0;
+}
+
+static int kcal_get_values(int *kcal_r, int *kcal_g, int *kcal_b)
+{
+	*kcal_r = g_kcal_r;
+	*kcal_g = g_kcal_g;
+	*kcal_b = g_kcal_b;
+	return 0;
+}
+
+static int kcal_refresh_values(void)
+{
+	return update_preset_lcdc_lut();
+}
+
+static struct kcal_platform_data kcal_pdata = {
+	.set_values = kcal_set_values,
+	.get_values = kcal_get_values,
+	.refresh_display = kcal_refresh_values
+};
+
+static struct platform_device kcal_platrom_device = {
+	.name   = "kcal_ctrl",
+	.dev = {
+		.platform_data = &kcal_pdata,
+	}
+};
+
+void __init lge_add_lcd_kcal_devices(void)
+{
+	pr_info(" KCAL_DEBUG : %s\n", __func__);
+	platform_device_register(&kcal_platrom_device);
+}
+#endif /* CONFIG_LCD_KCAL */
 
 #ifdef CONFIG_LGE_LCD_TUNING
 static struct platform_device lcd_misc_device = {
@@ -92,6 +173,8 @@ void __init apq8084_add_drivers(void)
 		msm_clock_init(&apq8084_rumi_clock_init_data);
 	else
 		msm_clock_init(&apq8084_clock_init_data);
+	tsens_tm_init_driver();
+	msm_thermal_device_init();
 #ifdef CONFIG_LGE_LCD_TUNING
 	lge_add_lcd_misc_devices();
 #endif
@@ -99,6 +182,14 @@ void __init apq8084_add_drivers(void)
 #ifdef CONFIG_LGE_QFPROM_INTERFACE
        lge_add_qfprom_devices();
 #endif
+
+#if defined(CONFIG_LGE_LCD_KCAL)
+	/* LGE_CHANGE_S
+	* change code for LCD KCAL
+	* 2013-05-08, seojin.lee@lge.com
+	*/
+	lge_add_lcd_kcal_devices();
+#endif /* CONFIG_LGE_LCD_KCAL */
 
 #ifdef CONFIG_USB_G_LGE_ANDROID
 	lge_add_android_usb_devices();
@@ -140,6 +231,11 @@ void __init apq8084_init(void)
 	apq8084_add_drivers();
 }
 
+void __init apq8084_init_very_early(void)
+{
+	apq8084_early_memory();
+}
+
 static const char *apq8084_dt_match[] __initconst = {
 	"qcom,apq8084",
 	NULL
@@ -150,6 +246,7 @@ DT_MACHINE_START(APQ8084_DT, "Qualcomm APQ 8084 (Flattened Device Tree)")
 	.init_machine		= apq8084_init,
 	.dt_compat		= apq8084_dt_match,
 	.reserve		= apq8084_reserve,
+	.init_very_early	= apq8084_init_very_early,
 	.restart		= msm_restart,
 	.smp			= &msm8974_smp_ops,
 MACHINE_END

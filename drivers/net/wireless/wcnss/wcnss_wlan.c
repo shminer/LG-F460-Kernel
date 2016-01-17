@@ -38,8 +38,7 @@
 #include <soc/qcom/subsystem_restart.h>
 #include <soc/qcom/subsystem_notif.h>
 
-#include <soc/qcom/smd.h>
-
+#include <mach/msm_smd.h>
 #include <mach/msm_iomap.h>
 
 #define DEVICE "wcnss_wlan"

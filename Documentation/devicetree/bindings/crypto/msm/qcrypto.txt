@@ -13,7 +13,6 @@ Required properties:
   - qcom,msm_bus,num_paths: The paths for source and destination ports
   - qcom,msm_bus,vectors: Vectors for bus topology.
   - qcom,ce-device: Device number.
-  - qcom,ce-opp-freq: indicates the CE operating frequency in Hz, changes from target to target.
 
 Optional properties:
   - qcom,ce-hw-shared : optional, indicates if the hardware is shared between EE.
@@ -25,7 +24,6 @@ Optional properties:
   - qcom,use-sw-hmac-algo : optional, indicates if use SW hmac algorithm.
   - qcom,use-sw-aes-ccm-algo : optional, indicates if use SW aes-ccm algorithm.
   - qcom,clk-mgmt-sus-res : optional, indicate if the ce clocks need to be disabled/enabled in suspend/resume function.
-  - qcom,support-core-clk-only : optional, indicates if the HW supports single crypto core clk.
 
 Example:
 
@@ -45,5 +43,4 @@ Example:
 		qcom,msm-bus,vectors-KBps =
 				<56 512 0 0>,
 				<56 512 3936000 393600>,
-		qcom,ce-opp-freq = <100000000>;
 	};

@@ -858,12 +858,12 @@ static int report_event(const struct lge_touch_data *ts)
 				ts->ts_curr_data.abs_data[i].orientation,
 				ts->ts_curr_data.abs_data[i].pressure);
 
-#if 0
 		if ((ts->ts_curr_data.report_id_mask &
 					(1 << ts->ts_curr_data.abs_data[i].id))
 				&& !(ts->ts_prev_data.report_id_mask &
 					(1 << ts->ts_curr_data.abs_data[i].id))) {
 			++ts->pdata->touch_count_num;
+
 			if (lockscreen_stat) {
 				TOUCH_INFO_MSG("%d finger pressed: <%d> "
 						"x[xxxx] y[xxxx] z[xxx]\n",
@@ -879,7 +879,6 @@ static int report_event(const struct lge_touch_data *ts)
 						ts->ts_curr_data.abs_data[i].pressure);
 			}
 		}
-#endif
 
 		if (ts->pdata->role->protocol_type == MT_PROTOCOL_A)
 			input_mt_sync(ts->input_dev);
@@ -905,7 +904,7 @@ static int report_event(const struct lge_touch_data *ts)
 				TOUCH_DEBUG(DEBUG_ABS, "<%d:%d> released\n",
 						ts->ts_prev_data.abs_data[i].id,
 						new_id);
-#if 0
+
 				if (lockscreen_stat) {
 					TOUCH_INFO_MSG("touch_release[ ]: <%d> "
 							"x[xxxx] y[xxxx]\n",
@@ -917,7 +916,6 @@ static int report_event(const struct lge_touch_data *ts)
 							ts->ts_prev_data.abs_data[i].x,
 							ts->ts_prev_data.abs_data[i].y);
 				}
-#endif
 			}
 		}
 	}

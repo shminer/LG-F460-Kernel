@@ -748,7 +748,6 @@ struct Scsi_Host {
 	unsigned int  by_usb;
 #endif
 
-
 	/*
 	 * We should ensure that this is aligned, both for better performance
 	 * and also because some compilers (m68k) don't automatically force

@@ -46,11 +46,6 @@ struct usb_ep;
  *     by adding a zero length packet as needed;
  * @short_not_ok: When reading data, makes short packets be
  *     treated as errors (queue stops advancing till cleanup).
- * @dma_pre_mapped: Tells the USB core driver whether this request should be
- *	DMA-mapped before it is queued to the USB HW. When set to true, it means
- *	that the request has already been mapped in advance and therefore the
- *	USB core driver does NOT need to do DMA-mapping when the request is
- *	queued to the USB HW.
  * @complete: Function called when request completes, so this request and
  *	its buffer may be re-used.  The function will always be called with
  *	interrupts disabled, and it must not sleep.
@@ -107,7 +102,6 @@ struct usb_request {
 	unsigned		no_interrupt:1;
 	unsigned		zero:1;
 	unsigned		short_not_ok:1;
-	unsigned		dma_pre_mapped:1;
 
 	void			(*complete)(struct usb_ep *ep,
 					struct usb_request *req);
@@ -191,10 +185,10 @@ struct usb_ep {
 
 /*-------------------------------------------------------------------------*/
 #ifdef CONFIG_USB_G_LGE_MULTIPLE_CONFIGURATION
-/*                  
-                                             
-                            
-                                                              
+/*B2-BSP-USB@lge.com
+ * If some eps need to share the usb_requset,
+ * this function is do that.
+ * Change original ep num of dwc3_request to parameter ep num.
  */
 static inline void lge_usb_ep_yield_request(struct usb_ep *ep,
 				       struct usb_request *req)
@@ -531,7 +525,6 @@ struct usb_gadget_ops {
  * @usb_core_id: Identifies the usb core controlled by this usb_gadget.
  *		 Used in case of more then one core operates concurrently.
  * @streaming_enabled: Enable streaming mode with usb core.
- * @xfer_isr_count: UI (transfer complete) interrupts count
  *
  * Gadgets have a mostly-portable "gadget driver" implementing device
  * functions, handling all usb configurations and interfaces.  Gadget
@@ -573,10 +566,9 @@ struct usb_gadget {
 	unsigned			out_epnum;
 	unsigned			in_epnum;
 	bool				l1_supported;
-	u8				usb_core_id;
-	bool				streaming_enabled;
-	bool				remote_wakeup;
-	u32				xfer_isr_count;
+	u8                  usb_core_id;
+	bool                streaming_enabled;
+	bool                remote_wakeup;
 };
 #define work_to_gadget(w)	(container_of((w), struct usb_gadget, work))
 

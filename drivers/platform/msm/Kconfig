@@ -164,6 +164,16 @@ config MSM_MHI
 	  memory. The MHI driver manages the shared memory by use of logical
 	  unidirectional channels.
 
+config MSM_MHI_UCI
+	 tristate "MHI Usperspace Control Interface Driver"
+	 depends on MSM_MHI
+	 help
+	  This modules enables userspace software clients to communicate
+	  with devices supporting the MHI protocol. Userspace clients
+	  may open the device nodes exposed by MHI UCI and perform
+	  read, write and ioctl operations to communicate with the
+	  attached device.
+
 config QCA1530
 	tristate "QCA1530 SoC GNSS Driver"
 	depends on REGULATOR && OF
@@ -178,48 +188,10 @@ config QCA1530
 	  To compile this driver as a module, choose M here: the module
 	  will be called qca1530.
 
-config PFT
-	bool "Per-File-Tagger driver"
-	default n
-	help
-		This driver is used for tagging enterprise files.
-		It is part of the Per-File-Encryption (PFE) feature.
-		The driver is tagging files when created by
-		registered application.
-		Tagged files are encrypted using the dm-req-crypt driver.
-
 config MSM_SPSS
 	tristate "MSM SPSS driver"
 	default n
 	help
 	  Support for Standby Processing Sub-System (SPSS) module.
-
-config MSM_BUS_SCALING
-	bool "Bus scaling driver"
-	default n
-	help
-		This option enables bus scaling on MSM devices.  Bus scaling
-		allows devices to request the clocks be set to rates sufficient
-		for the active devices needs without keeping the clocks at max
-		frequency when a slower speed is sufficient.
-
-config MSM_BUSPM_DEV
-	tristate "MSM Bus Performance Monitor Kernel Module"
-	depends on MSM_BUS_SCALING
-	default n
-	help
-	  This kernel module is used to mmap() hardware registers for the
-	  performance monitors, counters, etc. The module can also be used to
-	  allocate physical memory which is used by bus performance hardware to
-	  dump performance data
-
-config BUS_TOPOLOGY_ADHOC
-	bool "ad-hoc bus scaling topology"
-	default n
-	help
-		This option enables a driver that can handle adhoc bus topologies.
-		Adhoc bus topology driver allows one to many connections and maintains
-		directionality of connections by explicitly listing device connections
-		thus avoiding illegal routes.
 
 endmenu

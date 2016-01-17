@@ -18,7 +18,7 @@
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/spinlock.h>
-#include <soc/qcom/ocmem.h>
+#include <mach/ocmem.h>
 #include <linux/msm_iommu_domains.h>
 #include "vidc_hfi_api.h"
 #include "vidc_hfi_helper.h"
@@ -174,7 +174,6 @@ struct venus_hfi_device {
 	u32 intr_status;
 	u32 device_id;
 	u32 clk_load;
-	u32 codecs_enabled;
 	u32 last_packet_type;
 	struct {
 		struct vidc_bus_vote_data *vote_data;

@@ -174,12 +174,9 @@
 		qcom,clock-names = "core_clk", "iface_clk", "bus_clk";
 		qcom,clock-configs = <0x3 0x0 0x0>;
 		qcom,sw-power-collapse;
-		qcom,load-freq-tbl = <352800 160000000 0xffffffff>,
-			<352800 160000000 0x55555555>,
-			<244800 133330000 0xffffffff>,
-			<244800 133330000 0x55555555>,
-			<108000  66700000 0xffffffff>,
-			<108000  66700000 0x55555555>;
+		qcom,load-freq-tbl = <352800 160000000>,
+			<244800 133330000>,
+			<108000  66700000>;
 		qcom,hfi = "venus";
 		qcom,reg-presets = <0xE0024 0x0>,
 			<0x80124 0x3>,
@@ -1411,7 +1408,6 @@
 		qcom,msm-bus,vectors-KBps =
 				<55 512 0 0>,
 				<55 512 3936000 393600>;
-		qcom,ce-opp-freq = <100000000>;
 	};
 
         qcom,qcedev@fd400000 {
@@ -1431,7 +1427,6 @@
 		qcom,msm-bus,vectors-KBps =
 				<55 512 0 0>,
 				<55 512 3936000 393600>;
-		qcom,ce-opp-freq = <100000000>;
 	};
 
 	cpu-pmu {

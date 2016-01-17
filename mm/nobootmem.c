@@ -82,18 +82,27 @@ void free_bootmem_late(unsigned long addr, unsigned long size)
 
 static void __init __free_pages_memory(unsigned long start, unsigned long end)
 {
-	int order;
+	unsigned long i, start_aligned, end_aligned;
+	int order = ilog2(BITS_PER_LONG);
 
-	while (start < end) {
-		order = min(MAX_ORDER - 1UL, __ffs(start));
+	start_aligned = (start + (BITS_PER_LONG - 1)) & ~(BITS_PER_LONG - 1);
+	end_aligned = end & ~(BITS_PER_LONG - 1);
 
-		while (start + (1UL << order) > end)
-			order--;
+	if (end_aligned <= start_aligned) {
+		for (i = start; i < end; i++)
+			__free_pages_bootmem(pfn_to_page(i), 0);
 
-		__free_pages_bootmem(pfn_to_page(start), order);
-
-		start += (1UL << order);
+		return;
 	}
+
+	for (i = start; i < start_aligned; i++)
+		__free_pages_bootmem(pfn_to_page(i), 0);
+
+	for (i = start_aligned; i < end_aligned; i += BITS_PER_LONG)
+		__free_pages_bootmem(pfn_to_page(i), order);
+
+	for (i = end_aligned; i < end; i++)
+		__free_pages_bootmem(pfn_to_page(i), 0);
 }
 
 static unsigned long __init __free_memory_core(phys_addr_t start,
@@ -128,25 +137,20 @@ static unsigned long __init free_low_memory_core_early(void)
 	return count;
 }
 
-static int reset_managed_pages_done __initdata;
-
-static inline void __init reset_node_managed_pages(pg_data_t *pgdat)
+static void reset_node_lowmem_managed_pages(pg_data_t *pgdat)
 {
 	struct zone *z;
 
-	if (reset_managed_pages_done)
-		return;
+	/*
+	 * In free_area_init_core(), highmem zone's managed_pages is set to
+	 * present_pages, and bootmem allocator doesn't allocate from highmem
+	 * zones. So there's no need to recalculate managed_pages because all
+	 * highmem pages will be managed by the buddy system. Here highmem
+	 * zone also includes highmem movable zone.
+	 */
 	for (z = pgdat->node_zones; z < pgdat->node_zones + MAX_NR_ZONES; z++)
-		z->managed_pages = 0;
-}
-
-void __init reset_all_zones_managed_pages(void)
-{
-	struct pglist_data *pgdat;
-
-	for_each_online_pgdat(pgdat)
-		reset_node_managed_pages(pgdat);
-	reset_managed_pages_done = 1;
+		if (!is_highmem(z))
+			z->managed_pages = 0;
 }
 
 /**
@@ -156,19 +160,17 @@ void __init reset_all_zones_managed_pages(void)
  */
 unsigned long __init free_all_bootmem(void)
 {
-	unsigned long pages;
+	struct pglist_data *pgdat;
 
-	reset_all_zones_managed_pages();
+	for_each_online_pgdat(pgdat)
+		reset_node_lowmem_managed_pages(pgdat);
 
 	/*
 	 * We need to use MAX_NUMNODES instead of NODE_DATA(0)->node_id
 	 *  because in some case like Node0 doesn't have RAM installed
 	 *  low ram will be on Node1
 	 */
-	pages = free_low_memory_core_early();
-	totalram_pages += pages;
-
-	return pages;
+	return free_low_memory_core_early();
 }
 
 /**

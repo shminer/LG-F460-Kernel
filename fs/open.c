@@ -34,15 +34,15 @@
 
 #include "internal.h"
 
-/*             
-  
-                                        
-                                             
-  
-                                  
+/* LGE_CHANGE_S
+ *
+ * do read/mmap profiling during booting
+ * in order to use the data as readahead args
+ *
+ * byungchul.park@lge.com 20120503
  */
 #include "sreadahead_prof.h"
-/*             */
+/* LGE_CHAGE_E */
 
 int do_truncate(struct dentry *dentry, loff_t length, unsigned int time_attrs,
 	struct file *filp)
@@ -638,12 +638,23 @@ out:
 static inline int __get_file_write_access(struct inode *inode,
 					  struct vfsmount *mnt)
 {
-	int error = get_write_access(inode);
+	int error;
+	error = get_write_access(inode);
 	if (error)
 		return error;
-	error = __mnt_want_write(mnt);
-	if (error)
-		put_write_access(inode);
+	/*
+	 * Do not take mount writer counts on
+	 * special files since no writes to
+	 * the mount itself will occur.
+	 */
+	if (!special_file(inode->i_mode)) {
+		/*
+		 * Balanced in __fput()
+		 */
+		error = __mnt_want_write(mnt);
+		if (error)
+			put_write_access(inode);
+	}
 	return error;
 }
 
@@ -676,14 +687,16 @@ static int do_dentry_open(struct file *f,
 
 	path_get(&f->f_path);
 	inode = f->f_inode = f->f_path.dentry->d_inode;
-	if (f->f_mode & FMODE_WRITE && !special_file(inode->i_mode)) {
+	if (f->f_mode & FMODE_WRITE) {
 		error = __get_file_write_access(inode, f->f_path.mnt);
 		if (error)
 			goto cleanup_file;
-		file_take_write(f);
+		if (!special_file(inode->i_mode))
+			file_take_write(f);
 	}
 
 	f->f_mapping = inode->i_mapping;
+	file_sb_list_add(f, inode->i_sb);
 
 	if (unlikely(f->f_mode & FMODE_PATH)) {
 		f->f_op = &empty_fops;
@@ -718,7 +731,9 @@ static int do_dentry_open(struct file *f,
 
 cleanup_all:
 	fops_put(f->f_op);
+	file_sb_list_del(f);
 	if (f->f_mode & FMODE_WRITE) {
+		put_write_access(inode);
 		if (!special_file(inode->i_mode)) {
 			/*
 			 * We don't consider this a real
@@ -726,7 +741,6 @@ cleanup_all:
 			 * because it all happenend right
 			 * here, so just reset the state.
 			 */
-			put_write_access(inode);
 			file_reset_write(f);
 			__mnt_drop_write(f->f_path.mnt);
 		}
@@ -942,15 +956,15 @@ long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 			} else {
 				fsnotify_open(f);
 				fd_install(fd, f);
-/*             
-  
-                                        
-                                             
-  
-                                  
+/* LGE_CHANGE_S
+ *
+ * do read/mmap profiling during booting
+ * in order to use the data as readahead args
+ *
+ * byungchul.park@lge.com 20120503
 */
 				sreadahead_prof(f, 0, 0);
-/*              */
+/* LGE_CHANGE_E */
 
 			}
 		}
@@ -996,12 +1010,9 @@ SYSCALL_DEFINE2(creat, const char __user *, pathname, umode_t, mode)
 int filp_close(struct file *filp, fl_owner_t id)
 {
 	int retval = 0;
-	long ret;
 
-	ret = file_count(filp);
-	if (ret <= 0) {
-		printk(KERN_ERR "VFS: Close: file count is %ld\n", ret);
-		WARN_ON(ret < 0);
+	if (!file_count(filp)) {
+		printk(KERN_ERR "VFS: Close: file count is 0\n");
 		return 0;
 	}
 
@@ -1012,7 +1023,6 @@ int filp_close(struct file *filp, fl_owner_t id)
 		dnotify_flush(filp, id);
 		locks_remove_posix(filp, id);
 	}
-	security_file_close(filp);
 	fput(filp);
 	return retval;
 }

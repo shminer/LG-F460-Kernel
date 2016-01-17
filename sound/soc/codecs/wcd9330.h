@@ -31,13 +31,13 @@
 #define TOMTOM_SB_PGD_PORT_RX_BASE   0x40
 #define TOMTOM_SB_PGD_PORT_TX_BASE   0x50
 
-#define WCD9330_DMIC_CLK_DIV_2 0x00
-#define WCD9330_DMIC_CLK_DIV_3 0x01
-#define WCD9330_DMIC_CLK_DIV_4 0x02
-#define WCD9330_DMIC_CLK_DIV_6 0x03
-#define WCD9330_DMIC_CLK_DIV_16 0x04
+#define WCD9330_DMIC_B1_CTL_DIV_2 0x00
+#define WCD9330_DMIC_B1_CTL_DIV_3 0x20
+#define WCD9330_DMIC_B1_CTL_DIV_4 0x40
 
-#define TOMTOM_ZDET_SUPPORTED true
+#define WCD9330_DMIC_B2_CTL_DIV_2 0x00
+#define WCD9330_DMIC_B2_CTL_DIV_3 0x12
+#define WCD9330_DMIC_B2_CTL_DIV_4 0x24
 
 extern const u8 tomtom_reg_readable[TOMTOM_CACHE_SIZE];
 extern const u8 tomtom_reset_reg_defaults[TOMTOM_CACHE_SIZE];
@@ -59,13 +59,6 @@ enum tomtom_mbhc_analog_pwr_cfg {
 	TOMTOM_ANALOG_PWR_COLLAPSED = 0,
 	TOMTOM_ANALOG_PWR_ON,
 	TOMTOM_NUM_ANALOG_PWR_CONFIGS,
-};
-
-enum {
-	HPH_PA_NONE = 0,
-	HPH_PA_R,
-	HPH_PA_L,
-	HPH_PA_L_R,
 };
 
 /* Number of input and output Slimbus port */
@@ -124,9 +117,9 @@ extern void tomtom_register_ext_clk_cb(
 	struct snd_soc_codec *codec);
 extern int tomtom_enable_qfuse_sensing(struct snd_soc_codec *codec);
 #ifdef CONFIG_INPUT_MAX14688
-/*                                                         */
+/* 2014-06-23, jongyeol.yang@lge, WA for headset mic noise */
 extern void tomtom_dec5_vol_mute(void);
-/*                                                                    */
+/* 2014-10-06, mint.choi@lge, HP L/R auto pull down set for aux noise */
 extern void tomtom_set_auto_pull_down(bool enable);
 #endif
 #endif

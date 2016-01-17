@@ -33,10 +33,44 @@
 #include <linux/sched.h>
 #include <linux/of_fdt.h>
 
+/* These cache related routines make the assumption (if outer cache is
+ * available) that the associated physical memory is contiguous.
+ * They will operate on all (L1 and L2 if present) caches.
+ */
+void clean_and_invalidate_caches(unsigned long vstart,
+	unsigned long length, unsigned long pstart)
+{
+	dmac_flush_range((void *)vstart, (void *) (vstart + length));
+	outer_flush_range(pstart, pstart + length);
+}
+
+void clean_caches(unsigned long vstart,
+	unsigned long length, unsigned long pstart)
+{
+	dmac_clean_range((void *)vstart, (void *) (vstart + length));
+	outer_clean_range(pstart, pstart + length);
+}
+
+void invalidate_caches(unsigned long vstart,
+	unsigned long length, unsigned long pstart)
+{
+	dmac_inv_range((void *)vstart, (void *) (vstart + length));
+	outer_inv_range(pstart, pstart + length);
+}
+
 char *memtype_name[] = {
 	"EBI0",
 	"EBI1"
 };
+
+unsigned int msm_ttbr0;
+
+void store_ttbr0(void)
+{
+	/* Store TTBR0 for post-mortem debugging purposes. */
+	asm("mrc p15, 0, %0, c2, c0, 0\n"
+		: "=r" (msm_ttbr0));
+}
 
 static int __init check_for_compat(unsigned long node)
 {
@@ -52,10 +86,10 @@ static int __init check_for_compat(unsigned long node)
 int __init dt_scan_for_memory_reserve(unsigned long node, const char *uname,
 		int depth, void *data)
 {
-	const unsigned int *memory_remove_prop;
-	int memory_remove_prop_length;
-	const unsigned int *memory_reserve_prop;
-	int memory_reserve_prop_length;
+	unsigned int *memory_remove_prop;
+	unsigned long memory_remove_prop_length;
+	unsigned int *memory_reserve_prop;
+	unsigned long memory_reserve_prop_length;
 	unsigned int memory_size;
 	unsigned int memory_start;
 	unsigned int num_holes = 0;
@@ -125,3 +159,99 @@ out:
 	return 0;
 }
 
+/* Function to remove any meminfo blocks which are of size zero */
+static void merge_meminfo(void)
+{
+	int i = 0;
+
+	while (i < meminfo.nr_banks) {
+		struct membank *bank = &meminfo.bank[i];
+
+		if (bank->size == 0) {
+			memmove(bank, bank + 1,
+			(meminfo.nr_banks - i) * sizeof(*bank));
+			meminfo.nr_banks--;
+			continue;
+		}
+		i++;
+	}
+}
+
+/*
+ * Function to scan the device tree and adjust the meminfo table to
+ * reflect the memory holes.
+ */
+int __init dt_scan_for_memory_hole(unsigned long node, const char *uname,
+		int depth, void *data)
+{
+	unsigned int *memory_remove_prop;
+	unsigned long memory_remove_prop_length;
+	unsigned long hole_start;
+	unsigned long hole_size;
+	unsigned int num_holes = 0;
+	int i = 0;
+
+	memory_remove_prop = of_get_flat_dt_prop(node,
+						"qcom,memblock-remove",
+						&memory_remove_prop_length);
+
+	if (memory_remove_prop) {
+		if (!check_for_compat(node))
+			goto out;
+	} else {
+		goto out;
+	}
+
+	if (memory_remove_prop) {
+		if (!memory_remove_prop_length || (memory_remove_prop_length %
+			(2 * sizeof(unsigned int)) != 0)) {
+			WARN(1, "Memory remove malformed\n");
+			goto out;
+		}
+
+		num_holes = memory_remove_prop_length /
+					(2 * sizeof(unsigned int));
+
+		for (i = 0; i < (num_holes * 2); i += 2) {
+			hole_start = be32_to_cpu(memory_remove_prop[i]);
+			hole_size = be32_to_cpu(memory_remove_prop[i+1]);
+
+			adjust_meminfo(hole_start, hole_size);
+		}
+	}
+
+out:
+	return 0;
+}
+
+/*
+ * Split the memory bank to reflect the hole, if present,
+ * using the start and end of the memory hole.
+ */
+void adjust_meminfo(unsigned long start, unsigned long size)
+{
+	int i;
+
+	for (i = 0; i < meminfo.nr_banks; i++) {
+		struct membank *bank = &meminfo.bank[i];
+
+		if (((start + size) <= (bank->start + bank->size)) &&
+			(start >= bank->start)) {
+			memmove(bank + 1, bank,
+				(meminfo.nr_banks - i) * sizeof(*bank));
+			meminfo.nr_banks++;
+			i++;
+
+			bank->size = start - bank->start;
+			bank[1].start = (start + size);
+			bank[1].size -= (bank->size + size);
+			bank[1].highmem = 0;
+			merge_meminfo();
+		}
+	}
+}
+
+/* Provide a string that anonymous device tree allocations (those not
+ * directly associated with any driver) can use for their "compatible"
+ * field */
+EXPORT_COMPAT("qcom,msm-contig-mem");

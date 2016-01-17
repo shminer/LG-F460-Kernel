@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,7 +29,7 @@ struct msm_audio_ion_private {
 	bool smmu_enabled;
 	bool audioheap_enabled;
 	struct iommu_group *group;
-	int32_t domain_id;
+	u32 domain_id;
 	struct iommu_domain *domain;
 };
 
@@ -46,8 +46,7 @@ int msm_audio_ion_alloc(const char *name, struct ion_client **client,
 			struct ion_handle **handle, size_t bufsz,
 			ion_phys_addr_t *paddr, size_t *pa_len, void **vaddr)
 {
-	int rc = -EINVAL;
-	unsigned long err_ion_ptr = 0;
+	int rc = 0;
 
 	if ((msm_audio_ion_data.smmu_enabled == true) &&
 	    (msm_audio_ion_data.group == NULL)) {
@@ -59,7 +58,7 @@ int msm_audio_ion_alloc(const char *name, struct ion_client **client,
 		pr_err("%s: Invalid params\n", __func__);
 		return -EINVAL;
 	}
-	*client = msm_audio_ion_client_create(name);
+	*client = msm_audio_ion_client_create(UINT_MAX, name);
 	if (IS_ERR_OR_NULL((void *)(*client))) {
 		pr_err("%s: ION create client for AUDIO failed\n", __func__);
 		goto err;
@@ -68,23 +67,20 @@ int msm_audio_ion_alloc(const char *name, struct ion_client **client,
 	*handle = ion_alloc(*client, bufsz, SZ_4K,
 			ION_HEAP(ION_AUDIO_HEAP_ID), 0);
 	if (IS_ERR_OR_NULL((void *) (*handle))) {
-		if (msm_audio_ion_data.smmu_enabled == true) {
-			pr_debug("system heap is used");
-			msm_audio_ion_data.audioheap_enabled = 0;
-			*handle = ion_alloc(*client, bufsz, SZ_4K,
-					ION_HEAP(ION_SYSTEM_HEAP_ID), 0);
-		}
-		if (IS_ERR_OR_NULL((void *) (*handle))) {
-			if (IS_ERR((void *)(*handle)))
-				err_ion_ptr = PTR_ERR((int *)(*handle));
-			pr_err("%s:ION alloc fail err ptr=%ld, smmu_enabled=%d\n",
-			__func__, err_ion_ptr, msm_audio_ion_data.smmu_enabled);
-			rc = -ENOMEM;
-			goto err_ion_client;
-		}
+		pr_debug("system heap is used");
+		msm_audio_ion_data.audioheap_enabled = 0;
+		*handle = ion_alloc(*client, bufsz, SZ_4K,
+				ION_HEAP(ION_SYSTEM_HEAP_ID), 0);
+
 	} else {
 		pr_debug("audio heap is used");
 		msm_audio_ion_data.audioheap_enabled = 1;
+	}
+
+	if (IS_ERR_OR_NULL((void *) (*handle))) {
+		pr_err("%s: ION memory allocation for AUDIO failed rc=%d, smmu_enabled=%d\n",
+			__func__, rc, msm_audio_ion_data.smmu_enabled);
+		goto err_ion_client;
 	}
 
 	rc = msm_audio_ion_get_phys(*client, *handle, paddr, pa_len);
@@ -107,7 +103,7 @@ int msm_audio_ion_alloc(const char *name, struct ion_client **client,
 		memset((void *)*vaddr, 0, bufsz);
 	}
 
-	return rc;
+	return 0;
 
 err_ion_handle:
 	ion_free(*client, *handle);
@@ -116,7 +112,7 @@ err_ion_client:
 	*handle = NULL;
 	*client = NULL;
 err:
-	return rc;
+	return -EINVAL;
 }
 
 int msm_audio_ion_import(const char *name, struct ion_client **client,
@@ -137,7 +133,7 @@ int msm_audio_ion_import(const char *name, struct ion_client **client,
 		return -EPROBE_DEFER;
 	}
 
-	*client = msm_audio_ion_client_create(name);
+	*client = msm_audio_ion_client_create(UINT_MAX, name);
 	if (IS_ERR_OR_NULL((void *)(*client))) {
 		pr_err("%s: ION create client for AUDIO failed\n", __func__);
 		rc = -EINVAL;
@@ -254,16 +250,16 @@ int msm_audio_ion_mmap(struct audio_buffer *ab,
 		pr_debug("%s: page is NOT null\n", __func__);
 		for_each_sg(table->sgl, sg, table->nents, i) {
 			unsigned long remainder = vma->vm_end - addr;
-			unsigned long len = sg->length;
+			unsigned long len = sg_dma_len(sg);
 
 			page = sg_page(sg);
 
-			if (offset >= len) {
-				offset -= len;
+			if (offset >= sg_dma_len(sg)) {
+				offset -= sg_dma_len(sg);
 				continue;
 			} else if (offset) {
 				page += offset / PAGE_SIZE;
-				len -= offset;
+				len = sg_dma_len(sg) - offset;
 				offset = 0;
 			}
 			len = min(len, remainder);
@@ -316,11 +312,12 @@ bool msm_audio_ion_is_smmu_available(void)
 }
 
 /* move to static section again */
-struct ion_client *msm_audio_ion_client_create(const char *name)
+struct ion_client *msm_audio_ion_client_create(unsigned int heap_mask,
+					const char *name)
 {
 	struct ion_client *pclient = NULL;
 	/*IOMMU group and domain are moved to probe()*/
-	pclient = msm_ion_client_create(name);
+	pclient = msm_ion_client_create(heap_mask, name);
 	return pclient;
 }
 

@@ -34,7 +34,6 @@
 /* 2 is to account for module & param ID in payload */
 #define ADM_GET_PARAMETER_LENGTH  (4096 - APR_HDR_SIZE - 2 * sizeof(uint32_t))
 
-#define ULL_SUPPORTED_BITS_PER_SAMPLE 16
 #define ULL_SUPPORTED_SAMPLE_RATE 48000
 
 
@@ -811,15 +810,21 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 			/* is big enough and has a valid param size */
 			if ((payload[0] == 0) && (data->payload_size >
 				(4 * sizeof(*payload))) &&
-				(data->payload_size/sizeof(*payload)-4 >=
+				(data->payload_size - 4 >=
 				payload[3]) &&
 				(ARRAY_SIZE(adm_get_parameters)-1 >=
 				payload[3])) {
-				adm_get_parameters[0] = payload[3];
+				adm_get_parameters[0] = payload[3] /
+							sizeof(uint32_t);
+				/*
+				 * payload[3] is param_size which is
+				 * expressed in number of bytes
+				 */
 				pr_debug("%s: GET_PP PARAM:received parameter length: 0x%x\n",
 					__func__, adm_get_parameters[0]);
 				/* storing param size then params */
-				for (i = 0; i < payload[3]; i++)
+				for (i = 0; i < payload[3] /
+						sizeof(uint32_t); i++)
 					adm_get_parameters[1+i] = payload[4+i];
 			} else {
 				adm_get_parameters[0] = -1;
@@ -1426,9 +1431,7 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 			if ((open.topology_id ==
 				VPM_TX_SM_ECNS_COPP_TOPOLOGY) ||
 				(open.topology_id ==
-				VPM_TX_DM_FLUENCE_COPP_TOPOLOGY) ||
-				(open.topology_id ==
-				VPM_TX_DM_RFECNS_COPP_TOPOLOGY))
+				VPM_TX_DM_FLUENCE_COPP_TOPOLOGY))
 					rate = 16000;
 
 			if (perf_mode == ULTRA_LOW_LATENCY_PCM_MODE) {
@@ -1437,7 +1440,6 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 #ifdef CONFIG_HIFI_SOUND
 				bits_per_sample = 16;
 #endif
-				open.bit_width = ULL_SUPPORTED_BITS_PER_SAMPLE;
 			} else if (perf_mode == LOW_LATENCY_PCM_MODE) {
 				if ((open.topology_id ==
 					DOLBY_ADM_COPP_TOPOLOGY_ID) ||

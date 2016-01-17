@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -19,34 +19,61 @@
 
 struct rmnet_map_control_command_s {
 	uint8_t command_name;
-#if defined(__LITTLE_ENDIAN_BITFIELD)
+#ifndef RMNET_USE_BIG_ENDIAN_STRUCTS
 	uint8_t  cmd_type:2;
 	uint8_t  reserved:6;
-#elif defined(__BIG_ENDIAN_BITFIELD)
-	uint8_t  reserved:6;
-	uint8_t  cmd_type:2;
 #else
-#error "Please fix <asm/byteorder.h>"
-#endif
+	uint8_t  reserved:6;
+	uint8_t  cmd_type:2;
+#endif /* RMNET_USE_BIG_ENDIAN_STRUCTS */
 	uint16_t reserved2;
 	uint32_t   transaction_id;
 	union {
 		uint8_t  data[65528];
 		struct {
-#if defined(__LITTLE_ENDIAN_BITFIELD)
+#ifndef RMNET_USE_BIG_ENDIAN_STRUCTS
 			uint16_t  ip_family:2;
 			uint16_t  reserved:14;
-#elif defined(__BIG_ENDIAN_BITFIELD)
-			uint16_t  reserved:14;
-			uint16_t  ip_family:2;
 #else
-#error "Please fix <asm/byteorder.h>"
-#endif
+			uint16_t  reserved:14;
+			uint16_t  ip_family:2;
+#endif /* RMNET_USE_BIG_ENDIAN_STRUCTS */
 			uint16_t  flow_control_seq_num;
 			uint32_t  qos_id;
 		} flow_control;
 	};
 }  __aligned(1);
+
+struct rmnet_map_dl_checksum_trailer_s {
+	unsigned char  reserved_h;
+#if defined(__LITTLE_ENDIAN_BITFIELD)
+	unsigned char  valid:1;
+	unsigned char  reserved_l:7;
+#elif defined(__BIG_ENDIAN_BITFIELD)
+	unsigned char  reserved_l:7;
+	unsigned char  valid:1;
+#else
+#error "Please fix <asm/byteorder.h>"
+#endif
+	unsigned short checksum_start_offset;
+	unsigned short checksum_length;
+	unsigned short checksum_value;
+} __aligned(1);
+
+struct rmnet_map_ul_checksum_header_s {
+	unsigned short checksum_start_offset;
+#if defined(__LITTLE_ENDIAN_BITFIELD)
+	unsigned short checksum_insert_offset:14;
+	unsigned short udp_ip4_ind:1;
+	unsigned short cks_en:1;
+#elif defined(__BIG_ENDIAN_BITFIELD)
+	unsigned short cks_en:1;
+	unsigned short udp_ip4_ind:1;
+	unsigned short checksum_insert_offset:14;
+#else
+#error "Please fix <asm/byteorder.h>"
+#endif
+} __aligned(1);
 
 enum rmnet_map_results_e {
 	RMNET_MAP_SUCCESS,
@@ -70,11 +97,14 @@ enum rmnet_map_checksum_errors_e {
 	RMNET_MAP_CHECKSUM_OK,
 	RMNET_MAP_CHECKSUM_VALID_FLAG_NOT_SET,
 	RMNET_MAP_CHECKSUM_VALIDATION_FAILED,
-	RMNET_MAP_CHECKSUM_ERROR_UNKOWN,
-	RMNET_MAP_CHECKSUM_ERROR_NOT_DATA_PACKET,
-	RMNET_MAP_CHECKSUM_ERROR_BAD_BUFFER,
-	RMNET_MAP_CHECKSUM_ERROR_UNKNOWN_IP_VERSION,
-	RMNET_MAP_CHECKSUM_ERROR_UNKNOWN_TRANSPORT,
+	RMNET_MAP_CHECKSUM_ERR_UNKOWN,
+	RMNET_MAP_CHECKSUM_ERR_NOT_DATA_PACKET,
+	RMNET_MAP_CHECKSUM_ERR_BAD_BUFFER,
+	RMNET_MAP_CHECKSUM_ERR_UNKNOWN_IP_VERSION,
+	RMNET_MAP_CHECKSUM_ERR_UNKNOWN_TRANSPORT,
+	RMNET_MAP_CHECKSUM_FRAGMENTED_PACKET,
+	RMNET_MAP_CHECKSUM_SKIPPED,
+	RMNET_MAP_CHECKSUM_SW,
 	/* This should always be the last element */
 	RMNET_MAP_CHECKSUM_ENUM_LENGTH
 };
@@ -93,11 +123,6 @@ enum rmnet_map_agg_state_e {
 	RMNET_MAP_TXFER_SCHEDULED
 };
 
-#define RMNET_MAP_P_ICMP4  0x01
-#define RMNET_MAP_P_TCP    0x06
-#define RMNET_MAP_P_UDP    0x11
-#define RMNET_MAP_P_ICMP6  0x3a
-
 #define RMNET_MAP_COMMAND_REQUEST     0
 #define RMNET_MAP_COMMAND_ACK         1
 #define RMNET_MAP_COMMAND_UNSUPPORTED 2
@@ -113,5 +138,9 @@ rx_handler_result_t rmnet_map_command(struct sk_buff *skb,
 				      struct rmnet_phys_ep_conf_s *config);
 void rmnet_map_aggregate(struct sk_buff *skb,
 			 struct rmnet_phys_ep_conf_s *config);
+
+int rmnet_map_checksum_downlink_packet(struct sk_buff *skb);
+int rmnet_map_checksum_uplink_packet(struct sk_buff *skb,
+	struct net_device *orig_dev, uint32_t egress_data_format);
 
 #endif /* _RMNET_MAP_H_ */

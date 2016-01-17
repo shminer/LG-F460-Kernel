@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,10 +18,10 @@
 #include <linux/mutex.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#include <mach/msm_smd.h>
 #include <linux/qdsp6v2/apr.h>
 #include <sound/q6core.h>
-#include <soc/qcom/ocmem.h>
-#include <soc/qcom/smd.h>
+#include <mach/ocmem.h>
 
 #define TIMEOUT_MS 1000
 
@@ -42,7 +42,7 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 	int i, j;
 
 	if (data == NULL) {
-		pr_err("%s: data argument is null\n", __func__);
+		pr_err("%s: data argument is null", __func__);
 		return -EINVAL;
 	}
 

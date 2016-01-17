@@ -150,39 +150,8 @@ static inline void set_pte(pte_t *ptep, pte_t pteval)
 		 * Make sure the buddy is global too (if it's !none,
 		 * it better already be global)
 		 */
-#ifdef CONFIG_SMP
-		/*
-		 * For SMP, multiple CPUs can race, so we need to do
-		 * this atomically.
-		 */
-#ifdef CONFIG_64BIT
-#define LL_INSN "lld"
-#define SC_INSN "scd"
-#else /* CONFIG_32BIT */
-#define LL_INSN "ll"
-#define SC_INSN "sc"
-#endif
-		unsigned long page_global = _PAGE_GLOBAL;
-		unsigned long tmp;
-
-		__asm__ __volatile__ (
-			"	.set	push\n"
-			"	.set	noreorder\n"
-			"1:	" LL_INSN "	%[tmp], %[buddy]\n"
-			"	bnez	%[tmp], 2f\n"
-			"	 or	%[tmp], %[tmp], %[global]\n"
-			"	" SC_INSN "	%[tmp], %[buddy]\n"
-			"	beqz	%[tmp], 1b\n"
-			"	 nop\n"
-			"2:\n"
-			"	.set pop"
-			: [buddy] "+m" (buddy->pte),
-			  [tmp] "=&r" (tmp)
-			: [global] "r" (page_global));
-#else /* !CONFIG_SMP */
 		if (pte_none(*buddy))
 			pte_val(*buddy) = pte_val(*buddy) | _PAGE_GLOBAL;
-#endif /* CONFIG_SMP */
 	}
 #endif
 }
@@ -425,7 +394,9 @@ static inline int io_remap_pfn_range(struct vm_area_struct *vma,
 	phys_t phys_addr_high = fixup_bigphys_addr(pfn << PAGE_SHIFT, size);
 	return remap_pfn_range(vma, vaddr, phys_addr_high >> PAGE_SHIFT, size, prot);
 }
-#define io_remap_pfn_range io_remap_pfn_range
+#else
+#define io_remap_pfn_range(vma, vaddr, pfn, size, prot)		\
+		remap_pfn_range(vma, vaddr, pfn, size, prot)
 #endif
 
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE

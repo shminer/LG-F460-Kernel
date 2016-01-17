@@ -24,9 +24,9 @@
 #undef NR_OPEN
 
 #ifdef CONFIG_MACH_LGE
-/*           
-                                    
-                                         
+/* LGE_UPDATE
+ * Increase maximun-open-file-number
+ * 2014-05-20, T6-BSP-FILESYSTEM@lge.com 
  */
 #define INR_OPEN_CUR 2048	/* Initial setting for nfile rlimits */
 #else
@@ -162,9 +162,6 @@ struct inodes_stat_t {
 #define FIFREEZE	_IOWR('X', 119, int)	/* Freeze */
 #define FITHAW		_IOWR('X', 120, int)	/* Thaw */
 #define FITRIM		_IOWR('X', 121, struct fstrim_range)	/* Trim */
-#define FS_IOC_SHUTDOWN	_IOR('X', 125, __u32)	/* Shutdown */
-
-#define FIDTRIM	_IOWR('f', 128, struct fstrim_range)	/* Deep discard trim */
 
 #define	FS_IOC_GETFLAGS			_IOR('f', 1, long)
 #define	FS_IOC_SETFLAGS			_IOW('f', 2, long)
@@ -212,12 +209,5 @@ struct inodes_stat_t {
 #define SYNC_FILE_RANGE_WAIT_BEFORE	1
 #define SYNC_FILE_RANGE_WRITE		2
 #define SYNC_FILE_RANGE_WAIT_AFTER	4
-
-/*
- * Flags for going down operation used by FS_IOC_GOINGDOWN
- */
-#define FS_GOING_DOWN_FULLSYNC	0x0	/* going down with full sync */
-#define FS_GOING_DOWN_METASYNC	0x1	/* going down with metadata */
-#define FS_GOING_DOWN_NOSYNC	0x2	/* going down */
 
 #endif /* _UAPI_LINUX_FS_H */

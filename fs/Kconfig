@@ -39,7 +39,6 @@ source "fs/gfs2/Kconfig"
 source "fs/ocfs2/Kconfig"
 source "fs/btrfs/Kconfig"
 source "fs/nilfs2/Kconfig"
-source "fs/f2fs/Kconfig"
 
 endif # BLOCK
 
@@ -215,6 +214,7 @@ source "fs/pstore/Kconfig"
 source "fs/sysv/Kconfig"
 source "fs/ufs/Kconfig"
 source "fs/exofs/Kconfig"
+source "fs/f2fs/Kconfig"
 source "fs/efivarfs/Kconfig"
 
 endif # MISC_FILESYSTEMS
@@ -271,9 +271,5 @@ endif # NETWORK_FILESYSTEMS
 
 source "fs/nls/Kconfig"
 source "fs/dlm/Kconfig"
-
-config ASYNC_FSYNC
-	bool "asynchronous fsync"
-	default y
 
 endmenu

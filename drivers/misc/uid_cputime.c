@@ -73,7 +73,7 @@ static struct uid_entry *find_or_register_uid(uid_t uid)
 static int uid_stat_show(struct seq_file *m, void *v)
 {
 	struct uid_entry *uid_entry;
-	struct task_struct *task, *temp;
+	struct task_struct *task;
 	cputime_t utime;
 	cputime_t stime;
 	unsigned long bkt;
@@ -86,7 +86,7 @@ static int uid_stat_show(struct seq_file *m, void *v)
 	}
 
 	read_lock(&tasklist_lock);
-	do_each_thread(temp, task) {
+	for_each_process(task) {
 		uid_entry = find_or_register_uid(from_kuid_munged(
 			current_user_ns(), task_uid(task)));
 		if (!uid_entry) {
@@ -100,7 +100,7 @@ static int uid_stat_show(struct seq_file *m, void *v)
 		task_cputime_adjusted(task, &utime, &stime);
 		uid_entry->active_utime += utime;
 		uid_entry->active_stime += stime;
-	} while_each_thread(temp, task);
+	}
 	read_unlock(&tasklist_lock);
 
 	hash_for_each(hash_table, bkt, uid_entry, hash) {
@@ -160,15 +160,14 @@ static ssize_t uid_remove_write(struct file *file,
 		kstrtol(end_uid, 10, &uid_end) != 0) {
 		return -EINVAL;
 	}
+
 	mutex_lock(&uid_lock);
 
 	for (; uid_start <= uid_end; uid_start++) {
 		hash_for_each_possible_safe(hash_table, uid_entry, tmp,
-							hash, (uid_t)uid_start) {
-			if (uid_start == uid_entry->uid) {
-				hash_del(&uid_entry->hash);
-				kfree(uid_entry);
-			}
+							hash, uid_start) {
+			hash_del(&uid_entry->hash);
+			kfree(uid_entry);
 		}
 	}
 

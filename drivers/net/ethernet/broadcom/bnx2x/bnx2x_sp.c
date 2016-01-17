@@ -282,16 +282,16 @@ static bool bnx2x_raw_check_pending(struct bnx2x_raw_obj *o)
 
 static void bnx2x_raw_clear_pending(struct bnx2x_raw_obj *o)
 {
-	smp_mb__before_atomic();
+	smp_mb__before_clear_bit();
 	clear_bit(o->state, o->pstate);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 }
 
 static void bnx2x_raw_set_pending(struct bnx2x_raw_obj *o)
 {
-	smp_mb__before_atomic();
+	smp_mb__before_clear_bit();
 	set_bit(o->state, o->pstate);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 }
 
 /**
@@ -1037,6 +1037,9 @@ static void bnx2x_set_one_vlan_mac_e1h(struct bnx2x *bp,
 				     elem->cmd_data.vlan_mac.u.vlan_mac.vlan,
 				     ETH_VLAN_FILTER_CLASSIFY, config);
 }
+
+#define list_next_entry(pos, member) \
+	list_entry((pos)->member.next, typeof(*(pos)), member)
 
 /**
  * bnx2x_vlan_mac_restore - reconfigure next MAC/VLAN/VLAN-MAC element
@@ -2181,7 +2184,7 @@ static int bnx2x_set_rx_mode_e1x(struct bnx2x *bp,
 
 	/* The operation is completed */
 	clear_bit(p->state, p->pstate);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 
 	return 0;
 }
@@ -3640,16 +3643,16 @@ error_exit1:
 
 static void bnx2x_mcast_clear_sched(struct bnx2x_mcast_obj *o)
 {
-	smp_mb__before_atomic();
+	smp_mb__before_clear_bit();
 	clear_bit(o->sched_state, o->raw.pstate);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 }
 
 static void bnx2x_mcast_set_sched(struct bnx2x_mcast_obj *o)
 {
-	smp_mb__before_atomic();
+	smp_mb__before_clear_bit();
 	set_bit(o->sched_state, o->raw.pstate);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 }
 
 static bool bnx2x_mcast_check_sched(struct bnx2x_mcast_obj *o)
@@ -4269,7 +4272,7 @@ int bnx2x_queue_state_change(struct bnx2x *bp,
 		if (rc) {
 			o->next_state = BNX2X_Q_STATE_MAX;
 			clear_bit(pending_bit, pending);
-			smp_mb__after_atomic();
+			smp_mb__after_clear_bit();
 			return rc;
 		}
 
@@ -4358,7 +4361,7 @@ static int bnx2x_queue_comp_cmd(struct bnx2x *bp,
 	wmb();
 
 	clear_bit(cmd, &o->pending);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 
 	return 0;
 }
@@ -5306,7 +5309,7 @@ static inline int bnx2x_func_state_change_comp(struct bnx2x *bp,
 	wmb();
 
 	clear_bit(cmd, &o->pending);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 
 	return 0;
 }
@@ -5944,7 +5947,7 @@ int bnx2x_func_state_change(struct bnx2x *bp,
 		if (rc) {
 			o->next_state = BNX2X_F_STATE_MAX;
 			clear_bit(cmd, pending);
-			smp_mb__after_atomic();
+			smp_mb__after_clear_bit();
 			return rc;
 		}
 

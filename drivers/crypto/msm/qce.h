@@ -124,7 +124,6 @@ struct ce_hw_support {
 	bool use_sw_aes_ccm_algo;
 	bool clk_mgmt_sus_res;
 	unsigned int ce_device;
-	unsigned int ce_hw_instance;
 };
 
 /* Sha operation parameters */
@@ -149,8 +148,7 @@ struct qce_req {
 	void *areq;
 	enum qce_cipher_alg_enum   alg;	/* cipher algorithms*/
 	enum qce_cipher_dir_enum dir;	/* encryption? decryption? */
-	enum qce_cipher_mode_enum mode;	/* algorithm mode  */
-	enum qce_hash_alg_enum auth_alg;/* authentication algorithm for aead */
+	enum qce_cipher_mode_enum mode;	/* algorithm mode */
 	unsigned char *authkey;		/* authentication key  */
 	unsigned int authklen;		/* authentication key kength */
 	unsigned int authsize;		/* authentication key kength */

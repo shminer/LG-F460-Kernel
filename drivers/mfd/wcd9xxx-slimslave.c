@@ -224,38 +224,23 @@ int wcd9xxx_cfg_slim_sch_rx(struct wcd9xxx *wcd9xxx,
 	int ret;
 	struct slim_ch prop;
 	struct wcd9xxx_ch *rx;
-	int size = ARRAY_SIZE(ch_h);
 
 	/* Configure slave interface device */
 
 	list_for_each_entry(rx, wcd9xxx_ch_list, list) {
 		payload |= 1 << rx->shift;
-		if (ch_cnt < size) {
-			ch_h[ch_cnt] = rx->ch_h;
-			ch_cnt++;
-			pr_debug("list ch->ch_h %d ch->sph %d\n",
-				 rx->ch_h, rx->sph);
-		} else {
-			pr_err("%s: allocated channel number %u is out of max rangae %d\n",
-			       __func__, ch_cnt,
-			       size);
-			ret = EINVAL;
-			goto err;
-		}
+		ch_h[ch_cnt] = rx->ch_h;
+		ch_cnt++;
+		pr_debug("list ch->ch_h %d ch->sph %d\n", rx->ch_h, rx->sph);
 	}
 	pr_debug("%s: ch_cnt[%d] rate=%d WATER_MARK_VAL %d\n",
 		 __func__, ch_cnt, rate, WATER_MARK_VAL);
 	/* slim_define_ch api */
 	prop.prot = SLIM_AUTO_ISO;
-	if (rate == 44100) {
-		prop.baser = SLIM_RATE_11025HZ;
-		prop.ratem = (rate/11025);
-	} else {
-		prop.baser = SLIM_RATE_4000HZ;
-		prop.ratem = (rate/4000);
-	}
+	prop.baser = SLIM_RATE_4000HZ;
 	prop.dataf = SLIM_CH_DATAF_NOT_DEFINED;
 	prop.auxf = SLIM_CH_AUXF_NOT_APPLICABLE;
+	prop.ratem = (rate/4000);
 	prop.sampleszbits = bit_width;
 
 	pr_debug("Before slim_define_ch:\n"
@@ -271,10 +256,10 @@ int wcd9xxx_cfg_slim_sch_rx(struct wcd9xxx *wcd9xxx,
 
 	list_for_each_entry(rx, wcd9xxx_ch_list, list) {
 		codec_port = rx->port;
-		pr_debug("%s: codec_port %d rx 0x%p, payload %d\n"
+		pr_debug("%s: codec_port %d rx 0x%x, payload %d\n"
 			 "sh_ch.rx_port_ch_reg_base0 0x%x\n"
 			 "sh_ch.port_rx_cfg_reg_base 0x%x\n",
-			 __func__, codec_port, rx, payload,
+			 __func__, codec_port, (u32)rx, payload,
 			 sh_ch.rx_port_ch_reg_base,
 			sh_ch.port_rx_cfg_reg_base);
 
@@ -342,22 +327,13 @@ int wcd9xxx_cfg_slim_sch_tx(struct wcd9xxx *wcd9xxx,
 	u16 codec_port;
 	int ret = 0;
 	struct wcd9xxx_ch *tx;
-	int size = ARRAY_SIZE(ch_h);
 
 	struct slim_ch prop;
 
 	list_for_each_entry(tx, wcd9xxx_ch_list, list) {
 		payload |= 1 << tx->shift;
-		if (ch_cnt < size) {
-			ch_h[ch_cnt] = tx->ch_h;
-			ch_cnt++;
-		} else {
-			pr_err("%s: allocated channel number %u is out of max rangae %d\n",
-			       __func__, ch_cnt,
-			       size);
-			ret = EINVAL;
-			goto err;
-		}
+		ch_h[ch_cnt] = tx->ch_h;
+		ch_cnt++;
 	}
 
 	/* slim_define_ch api */
@@ -378,8 +354,8 @@ int wcd9xxx_cfg_slim_sch_tx(struct wcd9xxx *wcd9xxx,
 	pr_debug("%s: ch_cnt[%d] rate[%d]\n", __func__, ch_cnt, rate);
 	list_for_each_entry(tx, wcd9xxx_ch_list, list) {
 		codec_port = tx->port;
-		pr_debug("%s: codec_port %d tx 0x%p, payload 0x%x\n",
-			 __func__, codec_port, tx, payload);
+		pr_debug("%s: codec_port %d rx 0x%x, payload 0x%x\n",
+			 __func__, codec_port, (u32)tx, payload);
 		/* write to interface device */
 		ret = wcd9xxx_interface_reg_write(wcd9xxx,
 				SB_PGD_TX_PORT_MULTI_CHANNEL_0(codec_port),
@@ -548,38 +524,28 @@ EXPORT_SYMBOL_GPL(wcd9xxx_rx_vport_validation);
 
 
 /* This function is called with mutex acquired */
-int wcd9xxx_tx_vport_validation(u32 table, u32 port_id,
-				struct wcd9xxx_codec_dai_data *codec_dai,
-				u32 num_codec_dais)
+int wcd9xxx_tx_vport_validation(u32 vtable, u32 port_id,
+				struct wcd9xxx_codec_dai_data *codec_dai)
 {
 	struct wcd9xxx_ch *ch;
 	int ret = 0;
 	u32 index;
-	unsigned long vtable = table;
-	u32 size = sizeof(table) * BITS_PER_BYTE;
-
-	pr_debug("%s: vtable 0x%lx port_id %u size %d\n", __func__,
+	u32 size = sizeof(vtable) * 8;
+	pr_debug("%s: vtable 0x%x port_id %u size %d\n", __func__,
 		 vtable, port_id, size);
-	for_each_set_bit(index, &vtable, size) {
-		if (index < num_codec_dais) {
-			list_for_each_entry(ch,
-					&codec_dai[index].wcd9xxx_ch_list,
-					list) {
-				pr_debug("%s: index %u ch->port %u vtable 0x%lx\n",
-						__func__, index, ch->port,
-						vtable);
-				if (ch->port == port_id) {
-					pr_err("%s: TX%u is used by AIF%u_CAP Mixer\n",
-							__func__, port_id + 1,
-							(index + 1)/2);
-					ret = -EINVAL;
-					break;
-				}
+	for_each_set_bit(index, (unsigned long *)&vtable, size) {
+		list_for_each_entry(ch,
+				    &codec_dai[index].wcd9xxx_ch_list,
+				    list) {
+			pr_debug("%s: index %u ch->port %u vtable 0x%x\n",
+				 __func__, index, ch->port, vtable);
+			if (ch->port == port_id) {
+				pr_err("%s: TX%u is used by AIF%u_CAP Mixer\n",
+					__func__, port_id + 1,
+					(index + 1)/2);
+				ret = -EINVAL;
+				break;
 			}
-		} else {
-			pr_err("%s: Invalid index %d of codec dai",
-					__func__, index);
-			ret = -EINVAL;
 		}
 		if (ret)
 			break;
@@ -737,6 +703,7 @@ int wcd9xxx_slim_ch_master_close(struct wcd9xxx *wcd9xxx, void **handle)
 fail:
 	mutex_unlock(&tx_master->lock);
 	kfree(tx_master->slim_cfg);
+	pr_err("%s: rc = %x", __func__, rc);
 	return rc;
 }
 EXPORT_SYMBOL(wcd9xxx_slim_ch_master_close);
@@ -769,18 +736,6 @@ int wcd9xxx_slim_ch_master_status(struct wcd9xxx *wcd9xxx, void *handle,
 	if (rc || *len == 0) {
 		pr_err("%s: Get Xfer status rc %x, len %x\n",
 		       __func__, rc, *(len));
-	}
-
-	if (!rc && *len == 0) {
-		/*
-		 * If timeout occurred and the length of
-		 * buffer returned is 0, then there is a
-		 * error on the bus, return error to caller
-		 * to avoid queuing more buffers.
-		 */
-		pr_err("%s: no buffer returned after timeout\n",
-			__func__);
-		rc = -EIO;
 	}
 	mutex_unlock(&tx_master->lock);
 return rc;

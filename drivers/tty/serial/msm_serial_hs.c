@@ -180,7 +180,6 @@ struct msm_hs_tx {
 	dma_addr_t dma_base;
 	struct tasklet_struct tlet;
 	struct msm_hs_sps_ep_conn_data cons;
-	struct timer_list tx_timeout_timer;
 };
 
 struct msm_hs_rx {
@@ -189,7 +188,6 @@ struct msm_hs_rx {
 	dma_addr_t rbuffer;
 	unsigned char *buffer;
 	unsigned int buffer_pending;
-	char wl_name[32];
 	struct wake_lock wake_lock;
 	struct delayed_work flip_insert_work;
 	struct tasklet_struct tlet;
@@ -229,7 +227,6 @@ struct msm_hs_port {
 	enum msm_hs_clk_req_off_state_e clk_req_off_state;
 	atomic_t clk_count;
 	struct msm_hs_wakeup wakeup;
-	char dma_wl_name[32];
 	struct wake_lock dma_wake_lock;  /* held while any DMA active */
 
 	struct dentry *loopback_dir;
@@ -1299,29 +1296,6 @@ static void msm_hs_stop_rx_locked(struct uart_port *uport)
 	}
 }
 
-/* Tx timeout callback function */
-void tx_timeout_handler(unsigned long arg)
-{
-	struct msm_hs_port *msm_uport = (struct msm_hs_port *) arg;
-	struct uart_port *uport = &msm_uport->uport;
-	int isr;
-
-	if (msm_uport->clk_state != MSM_HS_CLK_ON) {
-		MSM_HS_WARN("%s(): clocks are off", __func__);
-		return;
-	}
-
-	isr = msm_hs_read(uport, UART_DM_ISR);
-	if (UARTDM_ISR_CURRENT_CTS_BMSK & isr)
-		MSM_HS_WARN("%s(): CTS Disabled, ISR 0x%x", __func__, isr);
-	dump_uart_hs_registers(msm_uport);
-	/* Log BAM TX pipe debug information */
-	sps_get_bam_debug_info(msm_uport->bam_handle,
-			93,
-			SPS_BAM_PIPE(msm_uport->bam_tx_ep_pipe_index),
-			0, 2);
-}
-
 /*  Transmit the next chunk of data */
 static void msm_hs_submit_tx_locked(struct uart_port *uport)
 {
@@ -1379,10 +1353,6 @@ static void msm_hs_submit_tx_locked(struct uart_port *uport)
 	/* Queue transfer request to SPS */
 	ret = sps_transfer_one(sps_pipe_handle, src_addr, tx_count,
 				msm_uport, flags);
-
-	/* Set 1 second timeout */
-	mod_timer(&tx->tx_timeout_timer,
-		jiffies + msecs_to_jiffies(MSEC_PER_SEC));
 
 	MSM_HS_DBG("%s:Enqueue Tx Cmd, ret %d\n", __func__, ret);
 }
@@ -1537,7 +1507,6 @@ static void flip_insert_work(struct work_struct *work)
 	spin_lock_irqsave(&msm_uport->uport.lock, flags);
 	if (msm_uport->rx.buffer_pending == NONE_PENDING) {
 		MSM_HS_ERR("Error: No buffer pending in %s", __func__);
-		spin_unlock_irqrestore(&msm_uport->uport.lock, flags);
 		return;
 	}
 	if (msm_uport->rx.buffer_pending & FIFO_OVERRUN) {
@@ -1794,7 +1763,6 @@ static void msm_hs_sps_tx_callback(struct sps_event_notify *notify)
 	notify->data.transfer.iovec.flags,
 	msm_uport->uport.line);
 
-	del_timer(&msm_uport->tx.tx_timeout_timer);
 	tasklet_schedule(&msm_uport->tx.tlet);
 }
 
@@ -2671,9 +2639,6 @@ static int msm_hs_startup(struct uart_port *uport)
 	tx->tx_ready_int_en = 0;
 	tx->dma_in_flight = 0;
 	MSM_HS_DBG("%s():desc usage flag 0x%lx", __func__, rx->queued_flag);
-	setup_timer(&(tx->tx_timeout_timer),
-			tx_timeout_handler,
-			(unsigned long) msm_uport);
 
 	/* Enable reading the current CTS, no harm even if CTS is ignored */
 	msm_uport->imr_reg |= UARTDM_ISR_CURRENT_CTS_BMSK;
@@ -2753,15 +2718,9 @@ static int uartdm_init_port(struct uart_port *uport)
 	init_waitqueue_head(&rx->wait);
 	init_waitqueue_head(&tx->wait);
 	init_waitqueue_head(&msm_uport->bam_disconnect_wait);
-
-	snprintf(rx->wl_name, sizeof(rx->wl_name), "msm_serial_hs_rx-%u",
-		uport->irq);
-	wake_lock_init(&rx->wake_lock, WAKE_LOCK_SUSPEND, rx->wl_name);
-
-	snprintf(msm_uport->dma_wl_name, sizeof(msm_uport->dma_wl_name),
-		"msm_serial_hs_dma-%u", uport->irq);
+	wake_lock_init(&rx->wake_lock, WAKE_LOCK_SUSPEND, "msm_serial_hs_rx");
 	wake_lock_init(&msm_uport->dma_wake_lock, WAKE_LOCK_SUSPEND,
-		msm_uport->dma_wl_name);
+		       "msm_serial_hs_dma");
 
 	tasklet_init(&rx->tlet, msm_serial_hs_rx_tlet,
 			(unsigned long) &rx->tlet);
@@ -3076,8 +3035,8 @@ deregister_bam:
 	return rc;
 }
 
-/*                                                                    */
-/*                                                                 */
+/* LGE_CHANGE_S, [BT][younghyun.kwon@lge.com], 2013-04-10, For G2 LPM */
+/* LG_BTUI : chanha.park@lge.com : Added bluesleep interface - [S] */
 #ifdef CONFIG_LGE_BLUESLEEP
 struct uart_port* msm_hs_get_bt_uport(unsigned int line)     //cockoo131107
 {
@@ -3115,9 +3074,9 @@ int msm_hs_get_bt_uport_clock_state(struct uart_port *uport)
 	return ret;
 }
 EXPORT_SYMBOL(msm_hs_get_bt_uport_clock_state);
-#endif /*                      */
-/*                                                                 */
-/*                                                        */
+#endif /* CONFIG_LGE_BLUESLEEP */
+/* LG_BTUI : chanha.park@lge.com : Added bluesleep interface - [E] */
+/* LGE_CHANGE_E, [BT][younghyun.kwon@lge.com], 2013-04-10 */
 
 static bool deviceid[UARTDM_NR] = {0};
 /*
@@ -3276,15 +3235,19 @@ static int msm_hs_probe(struct platform_device *pdev)
 		}
 	}
 
-	msm_uport->wakeup.irq = pdata->wakeup_irq;
-	msm_uport->wakeup.ignore = 1;
-	msm_uport->wakeup.inject_rx = pdata->inject_rx_on_wakeup;
-	msm_uport->wakeup.rx_to_inject = pdata->rx_to_inject;
+	if (pdata == NULL)
+		msm_uport->wakeup.irq = -1;
+	else {
+		msm_uport->wakeup.irq = pdata->wakeup_irq;
+		msm_uport->wakeup.ignore = 1;
+		msm_uport->wakeup.inject_rx = pdata->inject_rx_on_wakeup;
+		msm_uport->wakeup.rx_to_inject = pdata->rx_to_inject;
 
-	msm_uport->bam_tx_ep_pipe_index =
-			pdata->bam_tx_ep_pipe_index;
-	msm_uport->bam_rx_ep_pipe_index =
-			pdata->bam_rx_ep_pipe_index;
+		msm_uport->bam_tx_ep_pipe_index =
+				pdata->bam_tx_ep_pipe_index;
+		msm_uport->bam_rx_ep_pipe_index =
+				pdata->bam_rx_ep_pipe_index;
+	}
 
 	uport->iotype = UPIO_MEM;
 	uport->fifosize = 64;
@@ -3532,8 +3495,6 @@ static void msm_hs_shutdown(struct uart_port *uport)
 		/* to balance clk_state */
 		atomic_set(&msm_uport->clk_count, 1);
 		msm_hs_clock_unvote(msm_uport);
-		if (wake_lock_active(&msm_uport->dma_wake_lock))
-			wake_unlock(&msm_uport->dma_wake_lock);
 	}
 
 	pm_runtime_disable(uport->dev);

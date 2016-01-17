@@ -21,9 +21,6 @@
 #include <linux/msm_adreno_devfreq.h>
 #include <soc/qcom/scm.h>
 #include "governor.h"
-#ifdef CONFIG_ADRENO_IDLER
-#include "adreno_idler.h"
-#endif
 
 static DEFINE_SPINLOCK(tz_lock);
 
@@ -40,14 +37,6 @@ static DEFINE_SPINLOCK(tz_lock);
 #define HIST			5
 #define TARGET			80
 #define CAP			75
-/*
- * Use BUSY_BIN to check for fully busy rendering
- * intervals that may need early intervention when
- * seen with LONG_FRAME lengths
- */
-#define BUSY_BIN		95
-#define LONG_FRAME		25000
-#define MAX_TZ_VERSION		0
 
 /*
  * CEILING is 50msec, larger than any standard
@@ -58,75 +47,28 @@ static DEFINE_SPINLOCK(tz_lock);
 #define TZ_UPDATE_ID		0x4
 #define TZ_INIT_ID		0x6
 
-#define TZ_RESET_ID_64          0x7
-#define TZ_UPDATE_ID_64         0x8
-#define TZ_INIT_ID_64           0x9
-
 #define TAG "msm_adreno_tz: "
 
 /* Trap into the TrustZone, and call funcs there. */
-static int __secure_tz_reset_entry2(unsigned int *scm_data, u32 size_scm_data,
-                                       bool is_64)
-{
-       int ret;
-       /* sync memory before sending the commands to tz*/
-       __iowmb();
-       if (!is_64) {
-               spin_lock(&tz_lock);
-               ret = scm_call_atomic2(SCM_SVC_IO, TZ_RESET_ID, scm_data[0],
-                                       scm_data[1]);
-               spin_unlock(&tz_lock);
-       } else {
-               ret = scm_call(SCM_SVC_DCVS, TZ_RESET_ID_64, scm_data,
-                               size_scm_data, NULL, 0);
-       }
-       return ret;
-}
-
-/* Boolean to detect if pm has entered suspend mode */
-static bool suspended;
-
-static int __secure_tz_update_entry3(unsigned int *scm_data, u32 size_scm_data,
-					int *val, u32 size_val, bool is_64)
+static int __secure_tz_entry2(u32 cmd, u32 val1, u32 val2)
 {
 	int ret;
+	spin_lock(&tz_lock);
 	/* sync memory before sending the commands to tz*/
 	__iowmb();
-	if (!is_64) {
-		spin_lock(&tz_lock);
-		ret = scm_call_atomic3(SCM_SVC_IO, TZ_UPDATE_ID,
-					scm_data[0], scm_data[1], scm_data[2]);
-		spin_unlock(&tz_lock);
-		*val = ret;
-	} else {
-		ret = scm_call(SCM_SVC_DCVS, TZ_UPDATE_ID_64, scm_data,
-				size_scm_data, val, size_val);
-	}
+	ret = scm_call_atomic2(SCM_SVC_IO, cmd, val1, val2);
+	spin_unlock(&tz_lock);
 	return ret;
 }
 
-static int tz_init(struct devfreq_msm_adreno_tz_data *priv,
-			unsigned int *tz_pwrlevels, u32 size_pwrlevels,
-			unsigned int *version, u32 size_version)
+static int __secure_tz_entry3(u32 cmd, u32 val1, u32 val2, u32 val3)
 {
 	int ret;
-	/* Make sure all CMD IDs are avaialble */
-	if (scm_is_call_available(SCM_SVC_DCVS, TZ_INIT_ID)) {
-		ret = scm_call(SCM_SVC_DCVS, TZ_INIT_ID, tz_pwrlevels,
-				size_pwrlevels, NULL, 0);
-		*version = 0;
-
-	} else if (scm_is_call_available(SCM_SVC_DCVS, TZ_INIT_ID_64) &&
-			scm_is_call_available(SCM_SVC_DCVS, TZ_UPDATE_ID_64) &&
-			scm_is_call_available(SCM_SVC_DCVS, TZ_RESET_ID_64)) {
-
-		ret = scm_call(SCM_SVC_DCVS, TZ_INIT_ID_64, tz_pwrlevels,
-			size_pwrlevels, version, size_version);
-		if (!ret)
-			priv->is_64 = true;
-	} else
-		ret = -EINVAL;
-
+	spin_lock(&tz_lock);
+	/* sync memory before sending the commands to tz*/
+	__iowmb();
+	ret = scm_call_atomic3(SCM_SVC_IO, cmd, val1, val2, val3);
+	spin_unlock(&tz_lock);
 	return ret;
 }
 
@@ -142,12 +84,6 @@ static void _update_cutoff(struct devfreq_msm_adreno_tz_data *priv,
 	}
 }
 
-#ifdef CONFIG_SIMPLE_GPU_ALGORITHM
-extern int simple_gpu_active;
-extern int simple_gpu_algorithm(int level,
-				struct devfreq_msm_adreno_tz_data *priv);
-#endif
-
 static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 				u32 *flag)
 {
@@ -159,8 +95,6 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 	int act_level;
 	int norm_cycles;
 	int gpu_percent;
-	unsigned int scm_data[3];
-	static int busy_bin, frame_flag;
 
 	if (priv->bus.num)
 		stats.private_data = &b;
@@ -172,33 +106,8 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 		return result;
 	}
 
-	/* Prevent overflow */
-	if (stats.busy_time >= (1 << 24) || stats.total_time >= (1 << 24)) {
-		stats.busy_time >>= 7;
-		stats.total_time >>= 7;
-	}
-
 	*freq = stats.current_frequency;
 	*flag = 0;
-
-	/*
-	 * Force to use & record as min freq when system has
-	 * entered pm-suspend or screen-off state.
-	 */
-
-	if (suspended) {
-		*freq = devfreq->profile->freq_table[devfreq->profile->max_state - 1];
-		return 0;
-	}
-
-#ifdef CONFIG_ADRENO_IDLER
-	if (adreno_idler_active &&
-			adreno_idler(stats, devfreq, freq)) {
-		/* adreno_idler has asked to bail out now */
-		return 0;
-	}
-#endif
-
 	priv->bin.total_time += stats.total_time;
 	priv->bin.busy_time += stats.busy_time;
 	if (priv->bus.num) {
@@ -220,15 +129,6 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 		return 0;
 	}
 
-	if ((stats.busy_time * 100 / stats.total_time) > BUSY_BIN) {
-		busy_bin += stats.busy_time;
-		if (stats.total_time > LONG_FRAME)
-			frame_flag = 1;
-	} else {
-		busy_bin = 0;
-		frame_flag = 0;
-	}
-
 	level = devfreq_get_freq_level(devfreq, stats.current_frequency);
 	if (level < 0) {
 		pr_err(TAG "bad freq %ld\n", stats.current_frequency);
@@ -239,28 +139,13 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 	 * If there is an extended block of busy processing,
 	 * increase frequency.  Otherwise run the normal algorithm.
 	 */
-	if (priv->bin.busy_time > CEILING ||
-		(busy_bin > CEILING && frame_flag)) {
+	if (priv->bin.busy_time > CEILING) {
 		val = -1 * level;
-		busy_bin = 0;
-		frame_flag = 0;
 	} else {
-#ifdef CONFIG_SIMPLE_GPU_ALGORITHM
-		if (simple_gpu_active != 0)
-			val = simple_gpu_algorithm(level, priv);
-		else
-		scm_data[0] = level;
-		scm_data[1] = priv->bin.total_time;
-		scm_data[2] = priv->bin.busy_time;
-		__secure_tz_update_entry3(scm_data, sizeof(scm_data),
-					&val, sizeof(val), priv->is_64);
-#else
-		scm_data[0] = level;
-		scm_data[1] = priv->bin.total_time;
-		scm_data[2] = priv->bin.busy_time;
-		__secure_tz_update_entry3(scm_data, sizeof(scm_data),
-					&val, sizeof(val), priv->is_64);
-#endif
+		val = __secure_tz_entry3(TZ_UPDATE_ID,
+				level,
+				priv->bin.total_time,
+				priv->bin.busy_time);
 	}
 	priv->bin.total_time = 0;
 	priv->bin.busy_time = 0;
@@ -272,7 +157,7 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq,
 	if (val) {
 		level += val;
 		level = max(level, 0);
-		level = min_t(int, level, devfreq->profile->max_state - 1);
+		level = min_t(int, level, devfreq->profile->max_state);
 		goto clear;
 	}
 
@@ -341,20 +226,11 @@ static int tz_start(struct devfreq *devfreq)
 	unsigned int tz_pwrlevels[MSM_ADRENO_MAX_PWRLEVELS + 1];
 	unsigned int t1, t2 = 2 * HIST;
 	int i, out, ret;
-	unsigned int version;
 
-	struct msm_adreno_extended_profile *ext_profile = container_of(
-					(devfreq->profile),
-					struct msm_adreno_extended_profile,
-					profile);
-
-	/*
-	 * Assuming that we have only one instance of the adreno device
-	 * connected to this governor,
-	 * can safely restore the pointer to the governor private data
-	 * from the container of the device profile
-	 */
-	devfreq->data = ext_profile->private_data;
+	if (devfreq->data == NULL) {
+		pr_err(TAG "data is required for this governor\n");
+		return -EINVAL;
+	}
 
 	priv = devfreq->data;
 	priv->nb.notifier_call = tz_notify;
@@ -369,12 +245,11 @@ static int tz_start(struct devfreq *devfreq)
 		return -EINVAL;
 	}
 
-	ret = tz_init(priv, tz_pwrlevels, sizeof(tz_pwrlevels), &version,
-				sizeof(version));
-	if (ret != 0 || version > MAX_TZ_VERSION) {
+	ret = scm_call(SCM_SVC_DCVS, TZ_INIT_ID, tz_pwrlevels,
+			sizeof(tz_pwrlevels), NULL, 0);
+
+	if (ret != 0)
 		pr_err(TAG "tz_init failed\n");
-		return ret;
-	}
 
 	/* Set up the cut-over percentages for the bus calculation. */
 	if (priv->bus.num) {
@@ -402,8 +277,6 @@ static int tz_stop(struct devfreq *devfreq)
 	struct devfreq_msm_adreno_tz_data *priv = devfreq->data;
 
 	kgsl_devfreq_del_notifier(devfreq->dev.parent, &priv->nb);
-	/* leaving the governor and cleaning the pointer to private data */
-	devfreq->data = NULL;
 	return 0;
 }
 
@@ -413,8 +286,6 @@ static int tz_resume(struct devfreq *devfreq)
 	struct devfreq_dev_profile *profile = devfreq->profile;
 	unsigned long freq;
 
-	suspended = false;
-
 	freq = profile->initial_freq;
 
 	return profile->target(devfreq->dev.parent, &freq, 0);
@@ -423,22 +294,15 @@ static int tz_resume(struct devfreq *devfreq)
 static int tz_suspend(struct devfreq *devfreq)
 {
 	struct devfreq_msm_adreno_tz_data *priv = devfreq->data;
-	struct devfreq_dev_profile *profile = devfreq->profile;
-	unsigned long freq;
-        unsigned int scm_data[2] = {0, 0};
-        __secure_tz_reset_entry2(scm_data, sizeof(scm_data), priv->is_64);
 
-	suspended = true;
+	__secure_tz_entry2(TZ_RESET_ID, 0, 0);
 
 	priv->bin.total_time = 0;
 	priv->bin.busy_time = 0;
 	priv->bus.total_time = 0;
 	priv->bus.gpu_time = 0;
 	priv->bus.ram_time = 0;
-	
-	freq = profile->freq_table[profile->max_state - 1];
-
-	return profile->target(devfreq->dev.parent, &freq, 0);
+	return 0;
 }
 
 static int tz_handler(struct devfreq *devfreq, unsigned int event, void *data)

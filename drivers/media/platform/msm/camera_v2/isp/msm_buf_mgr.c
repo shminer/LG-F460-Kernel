@@ -29,7 +29,7 @@
 #include <media/msm_camera.h>
 #include <media/msm_isp.h>
 
-#include <linux/qcom_iommu.h>
+#include <mach/iommu.h>
 
 #include "msm.h"
 #include "msm_buf_mgr.h"
@@ -138,6 +138,16 @@ static int msm_isp_prepare_v4l2_buf(struct msm_isp_buf_mgr *buf_mgr,
 				__func__, mapped_info->handle);
 			goto ion_map_error;
 		}
+		if (buf_mgr->secure_enable == SECURE_MODE) {
+			pr_debug("%s: Securing the ION buffers\n", __func__);
+			rc = msm_ion_secure_buffer(buf_mgr->client,
+				mapped_info->handle, CAMERA_SECURE_CP_USAGE, 0);
+			if (rc < 0) {
+				pr_err("%s: Failed to secure ion buffers rc=%d\n",
+					__func__, rc);
+				goto ion_map_error;
+			}
+		}
 		if (ion_map_iommu(buf_mgr->client, mapped_info->handle,
 				domain_num, 0, SZ_4K,
 				0, &(mapped_info->paddr),
@@ -179,6 +189,12 @@ static void msm_isp_unprepare_v4l2_buf(
 		mapped_info = &buf_info->mapped_info[i];
 		ion_unmap_iommu(buf_mgr->client, mapped_info->handle,
 			domain_num, 0);
+		if (buf_mgr->secure_enable == SECURE_MODE) {
+			pr_debug("%s: Unsecuring the ION buffers\n",
+				__func__);
+			msm_ion_unsecure_buffer(buf_mgr->client,
+				mapped_info->handle);
+		}
 		ion_free(buf_mgr->client, mapped_info->handle);
 	}
 	return;
@@ -747,7 +763,7 @@ static int msm_isp_request_bufq(struct msm_isp_buf_mgr *buf_mgr,
 	struct msm_isp_bufq *bufq = NULL;
 	CDBG("%s: E\n", __func__);
 
-	if (!buf_request->num_buf || buf_request->num_buf > 2*VIDEO_MAX_FRAME) {
+	if (!buf_request->num_buf || buf_request->num_buf > VIDEO_MAX_FRAME) {
 		pr_err("Invalid buffer request\n");
 		return rc;
 	}
@@ -961,7 +977,7 @@ static int msm_isp_init_isp_buf_mgr(
 		pr_err("Bufq malloc error\n");
 		goto bufq_error;
 	}
-	buf_mgr->client = msm_ion_client_create(ctx_name);
+	buf_mgr->client = msm_ion_client_create(-1, ctx_name);
 	buf_mgr->buf_handle_cnt = 0;
 	buf_mgr->pagefault_debug = 0;
 	return 0;

@@ -12,6 +12,7 @@
 #include <linux/smp.h>
 #include <linux/cpu.h>
 #include <linux/notifier.h>
+#include <linux/msm_rtb.h>
 #include <soc/qcom/spm.h>
 #include <soc/qcom/pm.h>
 #include <linux/irqchip/arm-gic.h>
@@ -19,7 +20,7 @@
 #include <asm/smp_plat.h>
 #include <asm/vfp.h>
 
-#include <soc/qcom/jtag.h>
+#include <mach/jtag.h>
 
 static cpumask_t cpu_dying_mask;
 
@@ -55,9 +56,8 @@ static inline void platform_do_lowpower(unsigned int cpu, int *spurious)
 		 * therefore cannot safely call printk() or anything else
 		 * Read the pending interrupts to understand why we woke up
 		 */
-#ifdef CONFIG_MSM_PM
+		local_irq_disable();
 		gic_show_pending_irq();
-#endif
 		(*spurious)++;
 	}
 }
@@ -99,12 +99,35 @@ void __ref msm_cpu_die(unsigned int cpu)
 		pr_warn("CPU%u: %u spurious wakeup calls\n", cpu, spurious);
 }
 
-static int hotplug_dying_callback(struct notifier_block *nfb,
+#define CPU_SHIFT	0
+#define CPU_MASK	0xF
+#define CPU_OF(n)	(((n) & CPU_MASK) << CPU_SHIFT)
+#define CPUSET_SHIFT	4
+#define CPUSET_MASK	0xFFFF
+#define CPUSET_OF(n)	(((n) & CPUSET_MASK) << CPUSET_SHIFT)
+
+static int hotplug_rtb_callback(struct notifier_block *nfb,
 				unsigned long action, void *hcpu)
 {
+	/*
+	 * Bits [19:4] of the data are the online mask, lower 4 bits are the
+	 * cpu number that is being changed. Additionally, changes to the
+	 * online_mask that will be done by the current hotplug will be made
+	 * even though they aren't necessarily in the online mask yet.
+	 *
+	 * XXX: This design is limited to supporting at most 16 cpus
+	 */
+	int this_cpumask = CPUSET_OF(1 << (int)hcpu);
+	int cpumask = CPUSET_OF(cpumask_bits(cpu_online_mask)[0]);
+	int cpudata = CPU_OF((int)hcpu) | cpumask;
+
 	switch (action & (~CPU_TASKS_FROZEN)) {
+	case CPU_STARTING:
+		uncached_logk(LOGK_HOTPLUG, (void *)(cpudata | this_cpumask));
+		break;
 	case CPU_DYING:
 		cpumask_set_cpu((unsigned long)hcpu, &cpu_dying_mask);
+		uncached_logk(LOGK_HOTPLUG, (void *)(cpudata & ~this_cpumask));
 		break;
 	default:
 		break;
@@ -112,8 +135,8 @@ static int hotplug_dying_callback(struct notifier_block *nfb,
 
 	return NOTIFY_OK;
 }
-static struct notifier_block hotplug_dying_notifier = {
-	.notifier_call = hotplug_dying_callback,
+static struct notifier_block hotplug_rtb_notifier = {
+	.notifier_call = hotplug_rtb_callback,
 };
 
 int msm_platform_secondary_init(unsigned int cpu)
@@ -123,8 +146,7 @@ int msm_platform_secondary_init(unsigned int cpu)
 
 	if (!(*warm_boot)) {
 		*warm_boot = 1;
-		if (cpu)
-			return 0;
+		return 0;
 	}
 	msm_jtag_restore_state();
 #if defined(CONFIG_VFP) && defined (CONFIG_CPU_PM)
@@ -135,8 +157,8 @@ int msm_platform_secondary_init(unsigned int cpu)
 	return ret;
 }
 
-static int __init init_hotplug_dying(void)
+static int __init init_hotplug(void)
 {
-	return register_hotcpu_notifier(&hotplug_dying_notifier);
+	return register_hotcpu_notifier(&hotplug_rtb_notifier);
 }
-early_initcall(init_hotplug_dying);
+early_initcall(init_hotplug);

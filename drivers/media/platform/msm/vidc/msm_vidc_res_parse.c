@@ -40,7 +40,7 @@ static size_t get_u32_array_num_elements(struct platform_device *pdev,
 			name);
 		goto fail_read;
 	}
-	return num_elements;
+	return num_elements / 2;
 
 fail_read:
 	return 0;
@@ -114,9 +114,13 @@ static inline void msm_vidc_free_regulator_table(
 		struct regulator_info *rinfo =
 			&res->regulator_set.regulator_tbl[c];
 
+		kfree(rinfo->name);
 		rinfo->name = NULL;
 	}
 
+	/* The regulator table is one the few allocs that aren't managed, hence
+	 * free it manually */
+	kfree(res->regulator_set.regulator_tbl);
 	res->regulator_set.regulator_tbl = NULL;
 	res->regulator_set.count = 0;
 }
@@ -156,8 +160,6 @@ static int msm_vidc_load_reg_table(struct msm_vidc_platform_resources *res)
 
 	reg_set = &res->reg_set;
 	reg_set->count = get_u32_array_num_elements(pdev, "qcom,reg-presets");
-	reg_set->count /=  sizeof(*reg_set->reg_tbl) / sizeof(u32);
-
 	if (reg_set->count == 0) {
 		dprintk(VIDC_DBG, "no elements in reg set\n");
 		return rc;
@@ -200,7 +202,6 @@ static int msm_vidc_load_freq_table(struct msm_vidc_platform_resources *res)
 	}
 
 	num_elements = get_u32_array_num_elements(pdev, "qcom,load-freq-tbl");
-	num_elements /= sizeof(*res->load_freq_tbl) / sizeof(u32);
 	if (num_elements == 0) {
 		dprintk(VIDC_ERR, "no elements in frequency table\n");
 		return rc;
@@ -217,7 +218,7 @@ static int msm_vidc_load_freq_table(struct msm_vidc_platform_resources *res)
 
 	if (of_property_read_u32_array(pdev->dev.of_node,
 		"qcom,load-freq-tbl", (u32 *)res->load_freq_tbl,
-		num_elements * sizeof(*res->load_freq_tbl) / sizeof(u32))) {
+		num_elements * 2)) {
 		dprintk(VIDC_ERR, "Failed to read frequency table\n");
 		msm_vidc_free_freq_table(res);
 		return -EINVAL;
@@ -279,7 +280,7 @@ static int msm_vidc_load_bus_vectors(struct msm_vidc_platform_resources *res)
 		bus->sessions_supported = configs;
 		bus->pdata = msm_bus_pdata_from_node(pdev, child_node);
 		if (IS_ERR_OR_NULL(bus->pdata)) {
-			rc = PTR_ERR(bus->pdata) ?: -EBADHANDLE;
+			rc = PTR_ERR(bus->pdata);
 			dprintk(VIDC_ERR, "Failed to get bus pdata: %d\n", rc);
 			break;
 		}
@@ -443,8 +444,6 @@ static int msm_vidc_load_buffer_usage_table(
 
 	buffer_usage_set->count = get_u32_array_num_elements(
 				    pdev, "qcom,buffer-type-tz-usage-table");
-	buffer_usage_set->count /=
-		sizeof(*buffer_usage_set->buffer_usage_tbl) / sizeof(u32);
 	if (buffer_usage_set->count == 0) {
 		dprintk(VIDC_DBG, "no elements in buffer usage set\n");
 		return 0;
@@ -465,7 +464,7 @@ static int msm_vidc_load_buffer_usage_table(
 		    "qcom,buffer-type-tz-usage-table",
 		(u32 *)buffer_usage_set->buffer_usage_tbl,
 		buffer_usage_set->count *
-		(sizeof(*buffer_usage_set->buffer_usage_tbl) / sizeof(u32)));
+		(sizeof(*buffer_usage_set->buffer_usage_tbl)/sizeof(u32)));
 	if (rc) {
 		dprintk(VIDC_ERR, "Failed to read buffer usage table\n");
 		goto err_load_buf_usage;
@@ -485,7 +484,6 @@ static int msm_vidc_load_regulator_table(
 	struct regulator_set *regulators = &res->regulator_set;
 	struct device_node *domains_parent_node = NULL;
 	struct property *domains_property = NULL;
-	int reg_count = 0;
 
 	regulators->count = 0;
 	regulators->regulator_tbl = NULL;
@@ -495,43 +493,18 @@ static int msm_vidc_load_regulator_table(
 		const char *search_string = "-supply";
 		char *supply;
 		bool matched = false;
+		struct device_node *regulator_node = NULL;
+		struct regulator_info *rinfo = NULL;
+		void *temp = NULL;
 
-		/* check if current property is possibly a regulator */
+		/* 1) check if current property is possibly a regulator */
 		supply = strnstr(domains_property->name, search_string,
 				strlen(domains_property->name) + 1);
 		matched = supply && (*(supply + strlen(search_string)) == '\0');
 		if (!matched)
 			continue;
 
-		reg_count++;
-	}
-
-	regulators->regulator_tbl = devm_kzalloc(&pdev->dev,
-			sizeof(*regulators->regulator_tbl) *
-			reg_count, GFP_KERNEL);
-
-	if (!regulators->regulator_tbl) {
-		rc = -ENOMEM;
-		dprintk(VIDC_ERR,
-			"Failed to alloc memory for regulator table\n");
-		goto err_reg_tbl_alloc;
-	}
-
-	for_each_property_of_node(domains_parent_node, domains_property) {
-		const char *search_string = "-supply";
-		char *supply;
-		bool matched = false;
-		struct device_node *regulator_node = NULL;
-		struct regulator_info *rinfo = NULL;
-
-		/* check if current property is possibly a regulator */
-		supply = strnstr(domains_property->name, search_string,
-				strlen(domains_property->name) + 1);
-		matched = supply && (supply[strlen(search_string)] == '\0');
-		if (!matched)
-			continue;
-
-		/* make sure prop isn't being misused */
+		/* 2) make sure prop isn't being misused */
 		regulator_node = of_parse_phandle(domains_parent_node,
 				domains_property->name, 0);
 		if (IS_ERR(regulator_node)) {
@@ -539,20 +512,31 @@ static int msm_vidc_load_regulator_table(
 					domains_property->name);
 			continue;
 		}
+
+		/* 3) expand our table */
+		temp = krealloc(regulators->regulator_tbl,
+				sizeof(*regulators->regulator_tbl) *
+				(regulators->count + 1), GFP_KERNEL);
+		if (!temp) {
+			rc = -ENOMEM;
+			dprintk(VIDC_ERR,
+					"Failed to alloc memory for regulator table\n");
+			goto err_reg_tbl_alloc;
+		}
+
+		regulators->regulator_tbl = temp;
 		regulators->count++;
 
-		/* populate regulator info */
+		/* 4) populate regulator info */
 		rinfo = &regulators->regulator_tbl[regulators->count - 1];
-		rinfo->name = devm_kzalloc(&pdev->dev,
-			(supply - domains_property->name) + 1, GFP_KERNEL);
+		rinfo->name = kstrndup(domains_property->name,
+				supply - domains_property->name, GFP_KERNEL);
 		if (!rinfo->name) {
 			rc = -ENOMEM;
 			dprintk(VIDC_ERR,
 					"Failed to alloc memory for regulator name\n");
 			goto err_reg_name_alloc;
 		}
-		strlcpy(rinfo->name, domains_property->name,
-			(supply - domains_property->name) + 1);
 
 		rinfo->has_hw_power_collapse = of_property_read_bool(
 			regulator_node, "qcom,support-hw-trigger");
@@ -645,11 +629,6 @@ static int msm_vidc_load_clock_table(
 					"qcom,sw-power-collapse");
 	dprintk(VIDC_DBG, "Power collapse supported = %s\n",
 		res->sw_power_collapsible ? "yes" : "no");
-
-	res->early_fw_load = of_property_read_bool(pdev->dev.of_node,
-				"qcom,early-fw-load");
-	dprintk(VIDC_DBG, "Early fw load = %s\n",
-				res->early_fw_load ? "yes" : "no");
 
 	return 0;
 
