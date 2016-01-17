@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -216,21 +216,21 @@ static ssize_t kgsl_drv_memstat_show(struct device *dev,
 {
 	unsigned int val = 0;
 
-	if (!strcmp(attr->attr.name, "vmalloc"))
+	if (!strncmp(attr->attr.name, "vmalloc", 7))
 		val = kgsl_driver.stats.vmalloc;
-	else if (!strcmp(attr->attr.name, "vmalloc_max"))
+	else if (!strncmp(attr->attr.name, "vmalloc_max", 11))
 		val = kgsl_driver.stats.vmalloc_max;
-	else if (!strcmp(attr->attr.name, "page_alloc"))
+	else if (!strncmp(attr->attr.name, "page_alloc", 10))
 		val = kgsl_driver.stats.page_alloc;
-	else if (!strcmp(attr->attr.name, "page_alloc_max"))
+	else if (!strncmp(attr->attr.name, "page_alloc_max", 14))
 		val = kgsl_driver.stats.page_alloc_max;
-	else if (!strcmp(attr->attr.name, "coherent"))
+	else if (!strncmp(attr->attr.name, "coherent", 8))
 		val = kgsl_driver.stats.coherent;
-	else if (!strcmp(attr->attr.name, "coherent_max"))
+	else if (!strncmp(attr->attr.name, "coherent_max", 12))
 		val = kgsl_driver.stats.coherent_max;
-	else if (!strcmp(attr->attr.name, "mapped"))
+	else if (!strncmp(attr->attr.name, "mapped", 6))
 		val = kgsl_driver.stats.mapped;
-	else if (!strcmp(attr->attr.name, "mapped_max"))
+	else if (!strncmp(attr->attr.name, "mapped_max", 10))
 		val = kgsl_driver.stats.mapped_max;
 
 	return snprintf(buf, PAGE_SIZE, "%u\n", val);
@@ -361,7 +361,7 @@ static int kgsl_page_alloc_vmfault(struct kgsl_memdesc *memdesc,
 		return VM_FAULT_SIGBUS;
 
 	pgoff = offset >> PAGE_SHIFT;
-	
+
 #ifdef CONFIG_LGE_KGSL_OFFSET_SEARCH
 	if (memdesc->offseted_sg == 0x0FF5E7ED) {
 #define SCALED_FACTOR   (_get_page_size / PAGE_SIZE)
@@ -607,10 +607,6 @@ int kgsl_cache_range_op(struct kgsl_memdesc *memdesc, size_t offset,
 	if ((offset + size) > memdesc->size)
 		return -ERANGE;
 
-	/* Return quietly if the buffer isn't mapped on the CPU */
-	if (addr == NULL)
-		return 0;
-
 	addr = addr + offset;
 
 	/*
@@ -618,16 +614,18 @@ int kgsl_cache_range_op(struct kgsl_memdesc *memdesc, size_t offset,
 	 * are not aligned to the cacheline size correctly.
 	 */
 
-	switch (op) {
-	case KGSL_CACHE_OP_FLUSH:
-		dmac_flush_range(addr, addr + size);
-		break;
-	case KGSL_CACHE_OP_CLEAN:
-		dmac_clean_range(addr, addr + size);
-		break;
-	case KGSL_CACHE_OP_INV:
-		dmac_inv_range(addr, addr + size);
-		break;
+	if (addr !=  NULL) {
+		switch (op) {
+		case KGSL_CACHE_OP_FLUSH:
+			dmac_flush_range(addr, addr + size);
+			break;
+		case KGSL_CACHE_OP_CLEAN:
+			dmac_clean_range(addr, addr + size);
+			break;
+		case KGSL_CACHE_OP_INV:
+			dmac_inv_range(addr, addr + size);
+			break;
+		}
 	}
 	outer_cache_range_op_sg(memdesc->sg, memdesc->sglen, op);
 
@@ -641,14 +639,20 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 			size_t size)
 {
 	int pcount = 0, order, ret = 0;
-	int j, len, sglen_alloc, sglen = 0;
+	int j, len, page_size, sglen_alloc, sglen = 0;
 	struct page **pages = NULL;
 	pgprot_t page_prot = pgprot_writecombine(PAGE_KERNEL);
 	void *ptr;
 	unsigned int align;
-	int step = SZ_2M >> PAGE_SHIFT;
+	int step = ((VMALLOC_END - VMALLOC_START)/8) >> PAGE_SHIFT;
 
 	align = (memdesc->flags & KGSL_MEMALIGN_MASK) >> KGSL_MEMALIGN_SHIFT;
+
+	page_size = (align >= ilog2(SZ_64K) && size >= SZ_64K)
+			? SZ_64K : PAGE_SIZE;
+	/* update align flags for what we actually use */
+	if (page_size != PAGE_SIZE)
+		kgsl_memdesc_set_align(memdesc, ilog2(page_size));
 
 	/*
 	 * There needs to be enough room in the sg structure to be able to
@@ -685,17 +689,38 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 	sg_init_table(memdesc->sg, sglen_alloc);
 
 	len = size;
-	
+
 #ifdef CONFIG_LGE_KGSL_OFFSET_SEARCH
 	memdesc->offseted_sg = 0x0FF5E7ED;
 #endif
 
 	while (len > 0) {
 		struct page *page;
+		unsigned int gfp_mask = __GFP_HIGHMEM;
+		int j;
 
-		page = alloc_page(GFP_KERNEL | __GFP_HIGHMEM | __GFP_ZERO);
+		/* don't waste space at the end of the allocation*/
+		if (len < page_size)
+			page_size = PAGE_SIZE;
+
+		/*
+		 * Don't do some of the more aggressive memory recovery
+		 * techniques for large order allocations
+		 */
+		if (page_size != PAGE_SIZE)
+			gfp_mask |= __GFP_COMP | __GFP_NORETRY |
+				__GFP_NO_KSWAPD | __GFP_NOWARN;
+		else
+			gfp_mask |= GFP_KERNEL;
+
+		page = alloc_pages(gfp_mask, get_order(page_size));
 
 		if (page == NULL) {
+			if (page_size != PAGE_SIZE) {
+				page_size = PAGE_SIZE;
+				continue;
+			}
+
 			/*
 			 * Update sglen and memdesc size,as requested allocation
 			 * not served fully. So that they can be correctly freed
@@ -703,7 +728,6 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 			 */
 			memdesc->sglen = sglen;
 			memdesc->size = (size - len);
-			sg_mark_end(&memdesc->sg[sglen - 1]);
 
 			KGSL_CORE_ERR(
 				"Out of memory: only allocated %zuKB of %zuKB requested\n",
@@ -713,17 +737,15 @@ _kgsl_sharedmem_page_alloc(struct kgsl_memdesc *memdesc,
 			goto done;
 		}
 
-		ptr = kmap_atomic(page);
-		dmac_flush_range(ptr, ptr + PAGE_SIZE);
-		kunmap_atomic(ptr);
+		for (j = 0; j < page_size >> PAGE_SHIFT; j++)
+			pages[pcount++] = nth_page(page, j);
 
-		sg_set_page(&memdesc->sg[sglen++], page, PAGE_SIZE, 0);
-		len -= PAGE_SIZE;
+		sg_set_page(&memdesc->sg[sglen++], page, page_size, 0);
+		len -= page_size;
 	}
 
 	memdesc->sglen = sglen;
 	memdesc->size = size;
-	sg_mark_end(&memdesc->sg[sglen - 1]);
 
 	/*
 	 * All memory that goes to the user has to be zeroed out before it gets

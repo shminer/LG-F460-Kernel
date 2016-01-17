@@ -698,7 +698,7 @@ pnfs_layout_stateid_blocked(const struct pnfs_layout_hdr *lo,
 	return !pnfs_seqid_is_newer(seqid, lo->plh_barrier);
 }
 
-/*                                                                  */
+/* lget is set to 1 if called from inside send_layoutget call chain */
 static bool
 pnfs_layoutgets_blocked(const struct pnfs_layout_hdr *lo, int lget)
 {
@@ -1811,7 +1811,7 @@ static void pnfs_list_write_lseg_done(struct inode *inode, struct list_head *lis
 	}
 
 	clear_bit_unlock(NFS_INO_LAYOUTCOMMITTING, bitlock);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 	wake_up_bit(bitlock, NFS_INO_LAYOUTCOMMITTING);
 }
 

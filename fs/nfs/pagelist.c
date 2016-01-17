@@ -60,8 +60,8 @@ EXPORT_SYMBOL_GPL(nfs_pgheader_init);
 void nfs_set_pgio_error(struct nfs_pgio_header *hdr, int error, loff_t pos)
 {
 	spin_lock(&hdr->lock);
-	if (!test_and_set_bit(NFS_IOHDR_ERROR, &hdr->flags)
-	    || pos < hdr->io_start + hdr->good_bytes) {
+	if (pos < hdr->io_start + hdr->good_bytes) {
+		set_bit(NFS_IOHDR_ERROR, &hdr->flags);
 		clear_bit(NFS_IOHDR_EOF, &hdr->flags);
 		hdr->good_bytes = pos - hdr->io_start;
 		hdr->error = error;
@@ -95,7 +95,7 @@ nfs_iocounter_dec(struct nfs_io_counter *c)
 {
 	if (atomic_dec_and_test(&c->io_count)) {
 		clear_bit(NFS_IO_INPROGRESS, &c->flags);
-		smp_mb__after_atomic();
+		smp_mb__after_clear_bit();
 		wake_up_bit(&c->flags, NFS_IO_INPROGRESS);
 	}
 }
@@ -193,9 +193,9 @@ void nfs_unlock_request(struct nfs_page *req)
 		printk(KERN_ERR "NFS: Invalid unlock attempted\n");
 		BUG();
 	}
-	smp_mb__before_atomic();
+	smp_mb__before_clear_bit();
 	clear_bit(PG_BUSY, &req->wb_flags);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 	wake_up_bit(&req->wb_flags, PG_BUSY);
 }
 

@@ -2539,7 +2539,7 @@ static struct local_vote_clk gcc_ce2_clk = {
 	.en_mask = BIT(2),
 	.base = &virt_bases[GCC_BASE],
 	.c = {
-		.parent = &ce2_clk_src.c,
+		.parent = &branch_ce2_clk_src.c,
 		.dbg_name = "gcc_ce2_clk",
 		.ops = &clk_ops_vote,
 		CLK_INIT(gcc_ce2_clk.c),
@@ -5401,7 +5401,7 @@ static DEFINE_CLK_VOTER(branch_ce1_clk_src,  &ce1_clk_src.c,  50000000);
 
 static DEFINE_CLK_VOTER(qseecom_ce2_clk_src, &ce2_clk_src.c, 100000000);
 static DEFINE_CLK_VOTER(qcedev_ce2_clk_src,  &ce2_clk_src.c, 100000000);
-static DEFINE_CLK_VOTER(qcrypto_ce2_clk_src, &ce2_clk_src.c, 171430000);
+static DEFINE_CLK_VOTER(qcrypto_ce2_clk_src, &ce2_clk_src.c, 100000000);
 static DEFINE_CLK_VOTER(branch_ce2_clk_src,  &ce2_clk_src.c,  50000000);
 
 static DEFINE_CLK_MEASURE(l2_m_clk);
@@ -5837,7 +5837,6 @@ static struct measure_clk measure_clk = {
 	.c = {
 		.dbg_name = "measure_clk",
 		.ops = &clk_ops_measure,
-		.flags = CLKFLAG_MEASURE,
 		CLK_INIT(measure_clk.c),
 	},
 	.multiplier = 1,
@@ -6973,11 +6972,11 @@ static void __init apq8084_clock_post_init(void)
 	 */
 	clk_prepare_enable(&xo_a_clk_src.c);
 
-/*                                  */
+/* LGE_CHANGE_S, [NFC] NFC Bring up */
 #if defined(CONFIG_LGE_NFC_PN544_C3) || defined(CONFIG_LGE_NFC_PN547_C2)
 	clk_prepare_enable(&bb_clk2_pin.c);
 #endif
-/*                                  */
+/* LGE_CHANGE_E, [NFC] NFC Bring up */
 }
 
 #define GCC_CC_PHYS		0xFC400000

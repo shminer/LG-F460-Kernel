@@ -126,7 +126,7 @@ static int async_chainiv_schedule_work(struct async_chainiv_ctx *ctx)
 	int err = ctx->err;
 
 	if (!ctx->queue.qlen) {
-		smp_mb__before_atomic();
+		smp_mb__before_clear_bit();
 		clear_bit(CHAINIV_STATE_INUSE, &ctx->state);
 
 		if (!ctx->queue.qlen ||
@@ -359,4 +359,3 @@ module_exit(chainiv_module_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Chain IV Generator");
-MODULE_ALIAS_CRYPTO("chainiv");

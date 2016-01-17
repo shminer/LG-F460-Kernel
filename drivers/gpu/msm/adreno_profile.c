@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -317,7 +317,7 @@ static bool _add_to_assignments_list(struct adreno_profile *profile,
 
 static void check_close_profile(struct adreno_profile *profile)
 {
-	if (profile == NULL || profile->log_buffer == NULL)
+	if (profile->log_buffer == NULL)
 		return;
 
 	if (!adreno_profile_enabled(profile) && shared_buf_empty(profile)) {
@@ -946,8 +946,7 @@ static int profile_groups_print(struct seq_file *s, void *unused)
 {
 	struct kgsl_device *device = (struct kgsl_device *) s->private;
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
-	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
-	struct adreno_perfcounters *counters = gpudev->perfcounters;
+	struct adreno_perfcounters *counters = adreno_dev->gpudev->perfcounters;
 	struct adreno_perfcount_group *group;
 	int i, j, used;
 

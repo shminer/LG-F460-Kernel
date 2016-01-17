@@ -15,9 +15,9 @@
 
 #include <linux/msm_ion.h>
 #include <linux/iommu.h>
-#include <linux/qcom_iommu.h>
+#include <mach/iommu.h>
 #include <linux/msm_iommu_domains.h>
-#include <linux/msm-bus-board.h>
+#include <mach/msm_bus_board.h>
 #include <asm-generic/sizes.h>
 
 #include "vpu_resources.h"
@@ -594,7 +594,7 @@ static void *__vpu_mem_create_client(struct vpu_platform_resources *res)
 		return NULL;
 	}
 
-	ion_client = msm_ion_client_create("VPU");
+	ion_client = msm_ion_client_create(-1, "VPU");
 	if (IS_ERR(ion_client)) {
 		pr_err("ION client creation failed\n");
 		kfree(mem_client);
@@ -666,6 +666,12 @@ static void __vpu_mem_release_handle(void *mem_handle, u32 device_id)
 				ion_unmap_iommu(ion_client, ion_handle,
 					handle->domain_num[i], 0);
 
+			if (handle->flags & MEM_SECURE) {
+				if (msm_ion_unsecure_buffer(ion_client,
+						ion_handle))
+					pr_warn("Failed to unsecure memory\n");
+			}
+
 			handle->mapped &= ~(1 << i);
 			handle->domain_num[i] = -1;
 			handle->device_addr[i] = 0;
@@ -727,8 +733,16 @@ static int __vpu_mem_map_handle(struct vpu_mem_handle *handle, u32 device_id,
 
 		domain_number = handle->domain_num[device_id];
 
-		if (handle->flags & MEM_SECURE) /* handle secure buffers */
+		if (handle->flags & MEM_SECURE) { /* handle secure buffers */
+			pr_debug("Securing ION buffer\n");
 			align = SZ_1M;
+			ret = msm_ion_secure_buffer(ion_client, ion_handle,
+					VIDEO_PIXEL, 0);
+			if (ret) {
+				pr_err("Failed to secure memory\n");
+				return ret;
+			}
+		}
 
 		pr_debug("Using IOMMU mapping\n");
 		ret = ion_map_iommu(ion_client, ion_handle, domain_number, 0,
@@ -743,6 +757,8 @@ static int __vpu_mem_map_handle(struct vpu_mem_handle *handle, u32 device_id,
 
 	if (ret) {
 		pr_err("Failed to map ion buffer\n");
+		if (handle->flags & MEM_SECURE)
+			msm_ion_unsecure_buffer(ion_client, ion_handle);
 		return ret;
 	}
 

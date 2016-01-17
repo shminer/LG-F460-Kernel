@@ -35,7 +35,6 @@ show up in /proc/sys/kernel:
 - domainname
 - hostname
 - hotplug
-- iso_cpu
 - kptr_restrict
 - kstack_depth_to_print       [ X86 only ]
 - l2cr                        [ PPC only ]
@@ -63,7 +62,6 @@ show up in /proc/sys/kernel:
 - randomize_va_space
 - real-root-dev               ==> Documentation/initrd.txt
 - reboot-cmd                  [ SPARC only ]
-- rr_interval
 - rtsig-max
 - rtsig-nr
 - sem
@@ -344,16 +342,6 @@ kernel stack.
 
 ==============================================================
 
-iso_cpu: (BFS CPU scheduler only).
-
-This sets the percentage cpu that the unprivileged SCHED_ISO tasks can
-run effectively at realtime priority, averaged over a rolling five
-seconds over the -whole- system, meaning all cpus.
-
-Set to 70 (percent) by default.
-
-==============================================================
-
 l2cr: (PPC only)
 
 This flag controls the L2 cache of G3 processor boards. If
@@ -475,32 +463,6 @@ This file shows up if CONFIG_DEBUG_STACKOVERFLOW is enabled.
 
 ==============================================================
 
-perf_cpu_time_max_percent:
-
-Hints to the kernel how much CPU time it should be allowed to
-use to handle perf sampling events.  If the perf subsystem
-is informed that its samples are exceeding this limit, it
-will drop its sampling frequency to attempt to reduce its CPU
-usage.
-
-Some perf sampling happens in NMIs.  If these samples
-unexpectedly take too long to execute, the NMIs can become
-stacked up next to each other so much that nothing else is
-allowed to execute.
-
-0: disable the mechanism.  Do not monitor or correct perf's
-   sampling rate no matter how CPU time it takes.
-
-1-100: attempt to throttle perf's sample rate to this
-   percentage of CPU.  Note: the kernel calculates an
-   "expected" length of each sample event.  100 here means
-   100% of that expected length.  Even if this is set to
-   100, you may still see sample throttling if this
-   length is exceeded.  Set to 0 if you truly do not care
-   how much CPU is consumed.
-
-==============================================================
-
 
 pid_max:
 
@@ -609,20 +571,6 @@ reboot-cmd: (Sparc only)
 ??? This seems to be a way to give an argument to the Sparc
 ROM/Flash boot loader. Maybe to tell it what to do after
 rebooting. ???
-
-==============================================================
-
-rr_interval: (BFS CPU scheduler only)
-
-This is the smallest duration that any cpu process scheduling unit
-will run for. Increasing this value can increase throughput of cpu
-bound tasks substantially but at the expense of increased latencies
-overall. Conversely decreasing it will decrease average and maximum
-latencies but at the expense of throughput. This value is in
-milliseconds and the default value chosen depends on the number of
-cpus available at scheduler initialisation with a minimum of 6.
-
-Valid values are from 1-1000.
 
 ==============================================================
 

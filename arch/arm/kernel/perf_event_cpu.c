@@ -227,8 +227,6 @@ static int __cpuinit cpu_pmu_notify(struct notifier_block *b,
 						 hcpu, 1);
 		break;
 	case CPU_STARTING:
-		if (cpu_pmu && cpu_pmu->reset)
-			cpu_pmu->reset(cpu_pmu);
 		if (cpu_pmu && cpu_pmu->restore_pm_registers)
 			smp_call_function_single(cpu,
 						 cpu_pmu->restore_pm_registers,
@@ -263,8 +261,9 @@ static int __cpuinit cpu_pmu_notify(struct notifier_block *b,
 				enable_irq_callback(&irq);
 			}
 
-			if (cpu_pmu) {
+			if (cpu_pmu && cpu_pmu->reset) {
 				__get_cpu_var(from_idle) = 1;
+				cpu_pmu->reset(NULL);
 				pmu = &cpu_pmu->pmu;
 				pmu->pmu_enable(pmu);
 				return NOTIFY_OK;
@@ -340,7 +339,6 @@ static struct of_device_id cpu_pmu_of_device_ids[] = {
 	{.compatible = "arm,arm1176-pmu",	.data = armv6pmu_init},
 	{.compatible = "arm,arm1136-pmu",	.data = armv6pmu_init},
 	{.compatible = "qcom,krait-pmu",	.data = armv7_krait_pmu_init},
-	{.compatible = "arm,armv8-pmuv3",       .data = armv8_pmuv3_pmu_init},
 	{},
 };
 

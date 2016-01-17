@@ -27,10 +27,8 @@
 #include <linux/clk/msm-clock-generic.h>
 #include <soc/qcom/clock-local2.h>
 #include <soc/qcom/clock-krait.h>
-#include <linux/cpufreq.h>
 
 #include <asm/cputype.h>
-#include <dt-bindings/clock/msm-clocks-krait.h>
 
 #include "clock.h"
 
@@ -448,35 +446,42 @@ static struct mux_clk kpss_debug_pri_mux = {
 };
 
 static struct clk_lookup kpss_clocks_8974[] = {
-	CLK_LIST(hfpll_src_clk),
-	CLK_LIST(acpu_aux_clk),
-	CLK_LIST(hfpll0_div_clk),
-	CLK_LIST(hfpll0_clk),
-	CLK_LIST(hfpll1_div_clk),
-	CLK_LIST(hfpll1_clk),
-	CLK_LIST(hfpll2_div_clk),
-	CLK_LIST(hfpll2_clk),
-	CLK_LIST(hfpll3_div_clk),
-	CLK_LIST(hfpll3_clk),
-	CLK_LIST(hfpll_l2_div_clk),
-	CLK_LIST(hfpll_l2_clk),
-	CLK_LIST(krait0_sec_mux_clk),
-	CLK_LIST(krait1_sec_mux_clk),
-	CLK_LIST(krait2_sec_mux_clk),
-	CLK_LIST(krait3_sec_mux_clk),
-	CLK_LIST(l2_sec_mux_clk),
-	CLK_LIST(krait0_pri_mux_clk),
-	CLK_LIST(krait1_pri_mux_clk),
-	CLK_LIST(krait2_pri_mux_clk),
-	CLK_LIST(krait3_pri_mux_clk),
-	CLK_LIST(l2_pri_mux_clk),
-	CLK_LIST(l2_clk),
-	CLK_LIST(krait0_clk),
-	CLK_LIST(krait1_clk),
-	CLK_LIST(krait2_clk),
-	CLK_LIST(krait3_clk),
+	CLK_LOOKUP("",	hfpll_src_clk.c,	""),
+	CLK_LOOKUP("",	acpu_aux_clk.c,		""),
+	CLK_LOOKUP("",	hfpll0_clk.c,		""),
+	CLK_LOOKUP("",	hfpll0_div_clk.c,	""),
+	CLK_LOOKUP("",	hfpll0_clk.c,		""),
+	CLK_LOOKUP("",	hfpll1_div_clk.c,	""),
+	CLK_LOOKUP("",	hfpll1_clk.c,		""),
+	CLK_LOOKUP("",	hfpll2_div_clk.c,	""),
+	CLK_LOOKUP("",	hfpll2_clk.c,		""),
+	CLK_LOOKUP("",	hfpll3_div_clk.c,	""),
+	CLK_LOOKUP("",	hfpll3_clk.c,		""),
+	CLK_LOOKUP("",	hfpll_l2_div_clk.c,	""),
+	CLK_LOOKUP("",	hfpll_l2_clk.c,		""),
+	CLK_LOOKUP("",	krait0_sec_mux_clk.c,		""),
+	CLK_LOOKUP("",	krait1_sec_mux_clk.c,		""),
+	CLK_LOOKUP("",	krait2_sec_mux_clk.c,		""),
+	CLK_LOOKUP("",	krait3_sec_mux_clk.c,		""),
+	CLK_LOOKUP("",	l2_sec_mux_clk.c,		""),
+	CLK_LOOKUP("",	krait0_pri_mux_clk.c,		""),
+	CLK_LOOKUP("",	krait1_pri_mux_clk.c,		""),
+	CLK_LOOKUP("",	krait2_pri_mux_clk.c,		""),
+	CLK_LOOKUP("",	krait3_pri_mux_clk.c,		""),
+	CLK_LOOKUP("",	l2_pri_mux_clk.c,		""),
+	CLK_LOOKUP("l2_clk",	l2_clk.c,     "0.qcom,msm-cpufreq"),
+	CLK_LOOKUP("cpu0_clk",	krait0_clk.c, "0.qcom,msm-cpufreq"),
+	CLK_LOOKUP("cpu1_clk",	krait1_clk.c, "0.qcom,msm-cpufreq"),
+	CLK_LOOKUP("cpu2_clk",	krait2_clk.c, "0.qcom,msm-cpufreq"),
+	CLK_LOOKUP("cpu3_clk",	krait3_clk.c, "0.qcom,msm-cpufreq"),
+	CLK_LOOKUP("l2_clk",	l2_clk.c,     "fe805664.qcom,pm"),
+	CLK_LOOKUP("cpu0_clk",	krait0_clk.c, "fe805664.qcom,pm"),
+	CLK_LOOKUP("cpu1_clk",	krait1_clk.c, "fe805664.qcom,pm"),
+	CLK_LOOKUP("cpu2_clk",	krait2_clk.c, "fe805664.qcom,pm"),
+	CLK_LOOKUP("cpu3_clk",	krait3_clk.c, "fe805664.qcom,pm"),
 
-	CLK_LIST(kpss_debug_pri_mux),
+	CLK_LOOKUP("kpss_debug_mux", kpss_debug_pri_mux.c,
+		   "fc401880.qcom,cc-debug"),
 };
 
 static struct clk *cpu_clk[] = {
@@ -692,74 +697,6 @@ static char table_name[] = "qcom,speedXX-pvsXX-bin-vXX";
 module_param_string(table_name, table_name, sizeof(table_name), S_IRUGO);
 static unsigned int pvs_config_ver;
 module_param(pvs_config_ver, uint, S_IRUGO);
-
-#ifdef CONFIG_MSM_CPU_VOLTAGE_CONTROL
-#define CPU_VDD_MAX	1200
-#define CPU_VDD_MIN	600
-
-extern int use_for_scaling(unsigned int freq);
-static unsigned int cnt;
-
-ssize_t show_UV_mV_table(struct cpufreq_policy *policy,
-			 char *buf)
-{
-	int i, freq, len = 0;
-	unsigned int cpu = 0;
-	unsigned int num_levels = cpu_clk[cpu]->vdd_class->num_levels;
-
-	if (!buf)
-		return -EINVAL;
-
-	for (i = 0; i < num_levels; i++) {
-		freq = use_for_scaling(cpu_clk[cpu]->fmax[i] / 1000);
-		if (freq < 0)
-			continue;
-
-		len += sprintf(buf + len, "%dmhz: %u mV\n", freq / 1000,
-			       cpu_clk[cpu]->vdd_class->vdd_uv[i] / 1000);
-	}
-
-	return len;
-}
-
-ssize_t store_UV_mV_table(struct cpufreq_policy *policy,
-			  char *buf, size_t count)
-{
-	int i, j;
-	int ret = 0;
-	unsigned int val, cpu = 0;
-	unsigned int num_levels = cpu_clk[cpu]->vdd_class->num_levels;
-	char size_cur[4];
-
-	if (cnt) {
-		cnt = 0;
-		return -EINVAL;
-	}
-
-	for (i = 0; i < num_levels; i++) {
-		if (use_for_scaling(cpu_clk[cpu]->fmax[i] / 1000) < 0)
-			continue;
-
-		ret = sscanf(buf, "%u", &val);
-		if (!ret)
-			return -EINVAL;
-
-		if (val > CPU_VDD_MAX)
-			val = CPU_VDD_MAX;
-		else if (val < CPU_VDD_MIN)
-			val = CPU_VDD_MIN;
-
-		for (j = 0; j < NR_CPUS; j++)
-			cpu_clk[j]->vdd_class->vdd_uv[i] = val * 1000;
-
-		ret = sscanf(buf, "%s", size_cur);
-		cnt = strlen(size_cur);
-		buf += cnt + 1;
-	}
-
-	return ret;
-}
-#endif
 
 static int clock_krait_8974_driver_probe(struct platform_device *pdev)
 {
@@ -996,12 +933,7 @@ static int clock_krait_8974_driver_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	ret = of_msm_clock_register(dev->of_node, kpss_clocks_8974,
-			ARRAY_SIZE(kpss_clocks_8974));
-	if (ret) {
-		dev_err(dev, "Unable to register krait clock table.\n");
-		return ret;
-	}
+	msm_clock_register(kpss_clocks_8974, ARRAY_SIZE(kpss_clocks_8974));
 
 	/*
 	 * We don't want the CPU or L2 clocks to be turned off at late init

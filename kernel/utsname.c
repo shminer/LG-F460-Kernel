@@ -93,13 +93,13 @@ static void *utsns_get(struct task_struct *task)
 	struct uts_namespace *ns = NULL;
 	struct nsproxy *nsproxy;
 
-	task_lock(task);
-	nsproxy = task->nsproxy;
+	rcu_read_lock();
+	nsproxy = task_nsproxy(task);
 	if (nsproxy) {
 		ns = nsproxy->uts_ns;
 		get_uts_ns(ns);
 	}
-	task_unlock(task);
+	rcu_read_unlock();
 
 	return ns;
 }

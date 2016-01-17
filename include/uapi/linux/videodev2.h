@@ -715,7 +715,6 @@ struct v4l2_buffer {
 #define V4L2_QCOM_BUF_FLAG_READONLY		0x8000000
 #define V4L2_MSM_VIDC_BUF_START_CODE_NOT_FOUND	0x10000000
 #define V4L2_MSM_BUF_FLAG_YUV_601_709_CLAMP	0x20000000
-#define V4L2_MSM_BUF_FLAG_MBAFF			0x40000000
 
 /**
  * struct v4l2_exportbuffer - export of video buffer as DMABUF file descriptor
@@ -1783,7 +1782,6 @@ struct v4l2_streamparm {
 		(V4L2_EVENT_MSM_VIDC_START + 7)
 #define V4L2_EVENT_MSM_VIDC_HW_OVERLOAD (V4L2_EVENT_MSM_VIDC_START + 8)
 #define V4L2_EVENT_MSM_VIDC_MAX_CLIENTS (V4L2_EVENT_MSM_VIDC_START + 9)
-#define V4L2_EVENT_MSM_VIDC_HW_UNSUPPORTED (V4L2_EVENT_MSM_VIDC_START + 10)
 
 /* Payload for V4L2_EVENT_VSYNC */
 struct v4l2_event_vsync {

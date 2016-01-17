@@ -2818,7 +2818,7 @@ static int msm8x10_wcd_enable_mbhc_micbias(struct snd_soc_codec *codec,
 		rc = snd_soc_dapm_force_enable_pin(&codec->dapm,
 			DAPM_MICBIAS_EXTERNAL_STANDALONE);
 	else {
-		if (msm8x10_wcd->micb_en_count > 1) {
+		if (msm8x10_wcd->micb_en_count > 0) {
 			msm8x10_wcd->micb_en_count--;
 			pr_debug("%s micb_en_count : %d", __func__,
 					msm8x10_wcd->micb_en_count);
@@ -3294,7 +3294,7 @@ static int msm8x10_wcd_codec_probe(struct snd_soc_codec *codec)
 	core_res = &msm8x10_wcd->wcd9xxx_res;
 	ret = wcd9xxx_resmgr_init(&msm8x10_wcd_priv->resmgr,
 				codec, core_res, NULL, &pdata->micbias,
-				NULL, NULL, WCD9XXX_CDC_TYPE_HELICON);
+				NULL, WCD9XXX_CDC_TYPE_HELICON);
 	if (ret) {
 		dev_err(codec->dev,
 				"%s: wcd9xxx init failed %d\n",

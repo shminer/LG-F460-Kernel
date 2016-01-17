@@ -24,7 +24,6 @@
 #include <linux/slab.h>
 #include <linux/stat.h>
 #include <soc/qcom/subsystem_notif.h>
-#include <soc/qcom/subsystem_restart.h>
 #include <soc/qcom/ramdump.h>
 
 #include <soc/qcom/smem.h>
@@ -988,38 +987,34 @@ static int restart_notifier_cb(struct notifier_block *this,
 				unsigned long code,
 				void *data)
 {
-	struct restart_notifier_block *notifier;
-	struct notif_data *notifdata = data;
-	int ret;
+	if (code == SUBSYS_AFTER_SHUTDOWN) {
+		struct restart_notifier_block *notifier;
 
-	switch (code) {
-
-	case SUBSYS_AFTER_SHUTDOWN:
 		notifier = container_of(this,
 					struct restart_notifier_block, nb);
 		SMEM_INFO("%s: ssrestart for processor %d ('%s')\n",
 				__func__, notifier->processor,
 				notifier->name);
+
 		remote_spin_release(&remote_spinlock, notifier->processor);
 		remote_spin_release_all(notifier->processor);
-		break;
-	case SUBSYS_RAMDUMP_NOTIFICATION:
-		if (!(smem_ramdump_dev && notifdata->enable_ramdump))
-			break;
-		SMEM_DBG("%s: saving ramdump\n", __func__);
-		/*
-		 * XPU protection does not currently allow the
-		 * auxiliary memory regions to be dumped.  If this
-		 * changes, then num_smem_areas + 1 should be passed
-		 * into do_elf_ramdump() to dump all regions.
-		 */
-		ret = do_elf_ramdump(smem_ramdump_dev,
-				smem_ramdump_segments, 1);
-		if (ret < 0)
-			LOG_ERR("%s: unable to dump smem %d\n", __func__, ret);
-		break;
-	default:
-		break;
+
+		if (smem_ramdump_dev) {
+			int ret;
+
+			SMEM_DBG("%s: saving ramdump\n", __func__);
+			/*
+			 * XPU protection does not currently allow the
+			 * auxiliary memory regions to be dumped.  If this
+			 * changes, then num_smem_areas + 1 should be passed
+			 * into do_elf_ramdump() to dump all regions.
+			 */
+			ret = do_elf_ramdump(smem_ramdump_dev,
+					smem_ramdump_segments, 1);
+			if (ret < 0)
+				LOG_ERR("%s: unable to dump smem %d\n",
+								__func__, ret);
+		}
 	}
 
 	return NOTIFY_DONE;
@@ -1347,7 +1342,7 @@ smem_targ_info_done:
 		goto free_smem_areas;
 	}
 
-	ramdump_segments_tmp = kcalloc(num_smem_areas,
+	ramdump_segments_tmp = kmalloc_array(num_smem_areas,
 			sizeof(struct ramdump_segment), GFP_KERNEL);
 	if (!ramdump_segments_tmp) {
 		LOG_ERR("%s: ramdump segment kmalloc failed\n", __func__);

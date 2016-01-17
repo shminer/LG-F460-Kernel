@@ -405,7 +405,7 @@ static int devfreq_notifier_call(struct notifier_block *nb, unsigned long type,
  * @devfreq:	the devfreq struct
  * @skip:	skip calling device_unregister().
  */
-static void _remove_devfreq(struct devfreq *devfreq)
+static void _remove_devfreq(struct devfreq *devfreq, bool skip)
 {
 	mutex_lock(&devfreq_list_lock);
 	if (IS_ERR(find_device_devfreq(devfreq->dev.parent))) {
@@ -423,6 +423,11 @@ static void _remove_devfreq(struct devfreq *devfreq)
 	if (devfreq->profile->exit)
 		devfreq->profile->exit(devfreq->dev.parent);
 
+	if (!skip && get_device(&devfreq->dev)) {
+		device_unregister(&devfreq->dev);
+		put_device(&devfreq->dev);
+	}
+
 	mutex_destroy(&devfreq->lock);
 	kfree(devfreq);
 }
@@ -432,12 +437,40 @@ static void _remove_devfreq(struct devfreq *devfreq)
  * @dev:	the devfreq device
  *
  * This calls _remove_devfreq() if _remove_devfreq() is not called.
+ * Note that devfreq_dev_release() could be called by _remove_devfreq() as
+ * well as by others unregistering the device.
  */
 static void devfreq_dev_release(struct device *dev)
 {
 	struct devfreq *devfreq = to_devfreq(dev);
 
-	_remove_devfreq(devfreq);
+	_remove_devfreq(devfreq, true);
+}
+
+/**
+ * find_governor_data - Find device specific private data for a governor.
+ * @profile: The profile to search.
+ * @governor_name: The governor to search for.
+ *
+ * Look up the device specific data for a governor.
+ */
+static void *find_governor_data(struct devfreq_dev_profile *profile,
+				const char *governor_name)
+{
+	void *data = NULL;
+	int i;
+
+	if (profile->governor_data == NULL)
+		return NULL;
+
+	for (i = 0; i < profile->num_governor_data; i++) {
+		if (strncmp(governor_name, profile->governor_data[i].name,
+			     DEVFREQ_NAME_LEN) == 0) {
+			data = profile->governor_data[i].data;
+			break;
+		}
+	}
+	return data;
 }
 
 /**
@@ -487,17 +520,19 @@ struct devfreq *devfreq_add_device(struct device *dev,
 	devfreq->profile = profile;
 	strncpy(devfreq->governor_name, governor_name, DEVFREQ_NAME_LEN);
 	devfreq->previous_freq = profile->initial_freq;
-	devfreq->data = data;
+
+	devfreq->data = data ? data : find_governor_data(devfreq->profile,
+							 governor_name);
+
 	devfreq->nb.notifier_call = devfreq_notifier_call;
 
 	devfreq->trans_table =	devm_kzalloc(dev, sizeof(unsigned int) *
 						devfreq->profile->max_state *
 						devfreq->profile->max_state,
 						GFP_KERNEL);
-	devfreq->time_in_state = devm_kzalloc(dev,
-					sizeof(*(devfreq->time_in_state)) *
-					devfreq->profile->max_state,
-					GFP_KERNEL);
+	devfreq->time_in_state = devm_kzalloc(dev, sizeof(unsigned int) *
+						devfreq->profile->max_state,
+						GFP_KERNEL);
 	devfreq->last_stat_updated = jiffies;
 	devfreq_set_freq_limits(devfreq);
 
@@ -549,8 +584,7 @@ int devfreq_remove_device(struct devfreq *devfreq)
 	if (!devfreq)
 		return -EINVAL;
 
-	device_unregister(&devfreq->dev);
-	put_device(&devfreq->dev);
+	_remove_devfreq(devfreq, false);
 
 	return 0;
 }
@@ -748,6 +782,7 @@ static ssize_t store_governor(struct device *dev, struct device_attribute *attr,
 			goto out;
 		}
 	}
+	df->data = find_governor_data(df->profile, str_governor);
 	df->governor = governor;
 	strncpy(df->governor_name, governor->name, DEVFREQ_NAME_LEN);
 	ret = df->governor->event_handler(df, DEVFREQ_GOV_START, NULL);
@@ -909,7 +944,7 @@ static ssize_t show_available_freqs(struct device *d,
 
 	rcu_read_lock();
 	use_opp = dev_pm_opp_get_opp_count(dev) > 0;
-	while (use_opp || (!use_opp && i < max_state)) {
+	do {
 		if (use_opp) {
 			opp = dev_pm_opp_find_freq_ceil(dev, &freq);
 			if (IS_ERR(opp))
@@ -921,7 +956,7 @@ static ssize_t show_available_freqs(struct device *d,
 		count += scnprintf(&buf[count], (PAGE_SIZE - count - 2),
 				   "%lu ", freq);
 		freq++;
-	}
+	} while (use_opp || (!use_opp && i < max_state));
 	rcu_read_unlock();
 
 	/* Truncate the trailing space */
@@ -996,10 +1031,7 @@ static int __init devfreq_init(void)
 		return PTR_ERR(devfreq_class);
 	}
 
-	devfreq_wq =
-	    alloc_workqueue("devfreq_wq",
-			    WQ_HIGHPRI | WQ_UNBOUND | WQ_FREEZABLE |
-			    WQ_MEM_RECLAIM, 0);
+	devfreq_wq = create_freezable_workqueue("devfreq_wq");
 	if (IS_ERR(devfreq_wq)) {
 		class_destroy(devfreq_class);
 		pr_err("%s: couldn't create workqueue\n", __FILE__);

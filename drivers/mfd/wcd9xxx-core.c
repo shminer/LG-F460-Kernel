@@ -122,22 +122,6 @@ int wcd9xxx_reg_read(
 }
 EXPORT_SYMBOL(wcd9xxx_reg_read);
 
-#ifdef CONFIG_SOUND_CONTROL_HAX_3_GPL
-int wcd9xxx_reg_read_safe(struct wcd9xxx *wcd9xxx, unsigned short reg)
-{
-	u8 val;
-	int ret;
-
-	ret = wcd9xxx_read(wcd9xxx, reg, 1, &val, false);
-
-	if (ret < 0)
-		return ret;
-	else
-		return val;
-}
-EXPORT_SYMBOL_GPL(wcd9xxx_reg_read_safe);
-#endif
-
 static int wcd9xxx_write(struct wcd9xxx *wcd9xxx, unsigned short reg,
 			int bytes, void *src, bool interface_reg)
 {
@@ -697,6 +681,7 @@ static const struct intr_data intr_tbl_v2[] = {
 	{WCD9XXX_IRQ_SPEAKER_CLIPPING, false},
 	{WCD9XXX_IRQ_VBAT_MONITOR_ATTACK, false},
 	{WCD9XXX_IRQ_VBAT_MONITOR_RELEASE, false},
+	{WCD9XXX_IRQ_RESERVED_2, false},
 };
 
 /*
@@ -1231,13 +1216,6 @@ static int wcd9xxx_i2c_probe(struct i2c_client *client,
 			dev_dbg(&client->dev, "%s:Platform data\n"
 				"from device tree\n", __func__);
 			pdata = wcd9xxx_populate_dt_pdata(&client->dev);
-			if (!pdata) {
-				dev_err(&client->dev,
-					"%s: Fail to obtain pdata from device tree\n",
-					 __func__);
-				ret = -EINVAL;
-				goto fail;
-			}
 			client->dev.platform_data = pdata;
 		} else {
 			dev_dbg(&client->dev, "%s:Platform data from\n"
@@ -1330,7 +1308,6 @@ err_supplies:
 	wcd9xxx_disable_supplies(wcd9xxx, pdata);
 err_codec:
 	kfree(wcd9xxx);
-	dev_set_drvdata(&client->dev, NULL);
 fail:
 	return ret;
 }
@@ -1343,7 +1320,6 @@ static int wcd9xxx_i2c_remove(struct i2c_client *client)
 	wcd9xxx = dev_get_drvdata(&client->dev);
 	wcd9xxx_disable_supplies(wcd9xxx, pdata);
 	wcd9xxx_device_exit(wcd9xxx);
-	dev_set_drvdata(&client->dev, NULL);
 	return 0;
 }
 
@@ -1555,69 +1531,12 @@ err:
 
 }
 
-/*
- * wcd9xxx_validate_dmic_sample_rate:
- *	Given the dmic_sample_rate and mclk rate, validate the
- *	dmic_sample_rate. If dmic rate is found to be invalid,
- *	assign the dmic rate as undefined, so individual codec
- *	drivers can use thier own defaults
- * @dev: the device for which the dmic is to be configured
- * @dmic_sample_rate: The input dmic_sample_rate
- * @mclk_rate: The input codec mclk rate
- * @dmic_rate_type: String to indicate the type of dmic sample
- *		    rate, used for debug/error logging.
- */
-static u32 wcd9xxx_validate_dmic_sample_rate(struct device *dev,
-		u32 dmic_sample_rate, u32 mclk_rate,
-		const char *dmic_rate_type)
-{
-	u32 div_factor;
-
-	if (dmic_sample_rate == WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED ||
-	    mclk_rate % dmic_sample_rate != 0)
-		goto undefined_rate;
-
-	div_factor = mclk_rate / dmic_sample_rate;
-
-	switch (div_factor) {
-	case 2:
-	case 3:
-	case 4:
-	case 16:
-		/* Valid dmic DIV factors */
-		dev_dbg(dev,
-			"%s: DMIC_DIV = %u, mclk_rate = %u\n",
-			__func__, div_factor, mclk_rate);
-		break;
-	case 6:
-		/* DIV 6 is valid only for 12.288 MCLK */
-		if (mclk_rate != WCD9XXX_MCLK_CLK_12P288MHZ)
-			goto undefined_rate;
-		break;
-	default:
-		/* Any other DIV factor is invalid */
-		goto undefined_rate;
-	}
-
-	return dmic_sample_rate;
-
-undefined_rate:
-	dev_info(dev,
-		 "%s: Invalid %s = %d, for mclk %d\n",
-		 __func__,
-		 dmic_rate_type,
-		 dmic_sample_rate, mclk_rate);
-	dmic_sample_rate = WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED;
-	return dmic_sample_rate;
-}
-
 static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 {
 	struct wcd9xxx_pdata *pdata;
 	int ret, static_cnt, ond_cnt, cp_supplies_cnt;
 	u32 mclk_rate = 0;
 	u32 dmic_sample_rate = 0;
-	u32 mad_dmic_sample_rate = 0;
 	const char *static_prop_name = "qcom,cdc-static-supplies";
 	const char *ond_prop_name = "qcom,cdc-on-demand-supplies";
 	const char *cp_supplies_name = "qcom,cdc-cp-supplies";
@@ -1650,7 +1569,7 @@ static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 	BUG_ON(static_cnt <= 0 || ond_cnt < 0 || cp_supplies_cnt < 0);
 	if ((static_cnt + ond_cnt + cp_supplies_cnt)
 			> ARRAY_SIZE(pdata->regulator)) {
-		dev_err(dev, "%s: Num of supplies %u > max supported %zu\n",
+		dev_err(dev, "%s: Num of supplies %u > max supported %u\n",
 			__func__, static_cnt, ARRAY_SIZE(pdata->regulator));
 		goto err;
 	}
@@ -1698,15 +1617,6 @@ static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 	}
 	pdata->mclk_rate = mclk_rate;
 
-	if (pdata->mclk_rate != WCD9XXX_MCLK_CLK_9P6HZ &&
-	    pdata->mclk_rate != WCD9XXX_MCLK_CLK_12P288MHZ) {
-		dev_err(dev,
-			"%s: Invalid mclk_rate = %u\n",
-			__func__, pdata->mclk_rate);
-		ret = -EINVAL;
-		goto err;
-	}
-
 	ret = of_property_read_u32(dev->of_node,
 				"qcom,cdc-dmic-sample-rate",
 				&dmic_sample_rate);
@@ -1716,26 +1626,28 @@ static struct wcd9xxx_pdata *wcd9xxx_populate_dt_pdata(struct device *dev)
 			dev->of_node->full_name);
 		dmic_sample_rate = WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED;
 	}
-	pdata->dmic_sample_rate =
-		wcd9xxx_validate_dmic_sample_rate(dev,
-						  dmic_sample_rate,
-						  pdata->mclk_rate,
-						  "audio_dmic_rate");
-
-	ret = of_property_read_u32(dev->of_node,
-				"qcom,cdc-mad-dmic-rate",
-				&mad_dmic_sample_rate);
-	if (ret) {
-		dev_err(dev, "Looking up %s property in node %s failed, err = %d",
-			"qcom,cdc-mad-dmic-rate",
-			dev->of_node->full_name, ret);
-		mad_dmic_sample_rate = WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED;
+	if (pdata->mclk_rate == WCD9XXX_MCLK_CLK_9P6HZ) {
+		if ((dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_2P4MHZ) &&
+		    (dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_3P2MHZ) &&
+		    (dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_4P8MHZ) &&
+		    (dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED)) {
+			dev_err(dev, "Invalid dmic rate %d for mclk %d\n",
+				dmic_sample_rate, pdata->mclk_rate);
+			ret = -EINVAL;
+			goto err;
+		}
+	} else if (pdata->mclk_rate == WCD9XXX_MCLK_CLK_12P288MHZ) {
+		if ((dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_3P072MHZ) &&
+		    (dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_4P096MHZ) &&
+		    (dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_6P144MHZ) &&
+		    (dmic_sample_rate != WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED)) {
+			dev_err(dev, "Invalid dmic rate %d for mclk %d\n",
+				dmic_sample_rate, pdata->mclk_rate);
+			ret = -EINVAL;
+			goto err;
+		}
 	}
-	pdata->mad_dmic_sample_rate =
-		wcd9xxx_validate_dmic_sample_rate(dev,
-						  mad_dmic_sample_rate,
-						  pdata->mclk_rate,
-						  "mad_dmic_rate");
+	pdata->dmic_sample_rate = dmic_sample_rate;
 
 	ret = of_property_read_string(dev->of_node,
 				"qcom,cdc-variant",
@@ -1795,14 +1707,6 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 	if (slim->dev.of_node) {
 		dev_info(&slim->dev, "Platform data from device tree\n");
 		pdata = wcd9xxx_populate_dt_pdata(&slim->dev);
-		if (!pdata) {
-			dev_err(&slim->dev,
-				"%s: Fail to obtain pdata from device tree\n",
-				__func__);
-			ret = -EINVAL;
-			goto err;
-		}
-
 		ret = wcd9xxx_dt_parse_slim_interface_dev_info(&slim->dev,
 				&pdata->slimbus_slave_device);
 		if (ret) {
@@ -1926,7 +1830,6 @@ err_supplies:
 	wcd9xxx_disable_supplies(wcd9xxx, pdata);
 err_codec:
 	kfree(wcd9xxx);
-	slim_set_clientdata(slim, NULL);
 err:
 	return ret;
 }
@@ -1945,7 +1848,6 @@ static int wcd9xxx_slim_remove(struct slim_device *pdev)
 	slim_remove_device(wcd9xxx->slim_slave);
 	wcd9xxx_disable_supplies(wcd9xxx, pdata);
 	wcd9xxx_device_exit(wcd9xxx);
-	slim_set_clientdata(pdev, NULL);
 	return 0;
 }
 
@@ -2005,6 +1907,7 @@ static int wcd9xxx_slim_device_down(struct slim_device *sldev)
 {
 	struct wcd9xxx *wcd9xxx = slim_get_devicedata(sldev);
 
+	dev_info(wcd9xxx->dev, "%s: device down\n", __func__);
 	if (!wcd9xxx) {
 		pr_err("%s: wcd9xxx is NULL\n", __func__);
 		return -EINVAL;

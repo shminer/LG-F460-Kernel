@@ -38,7 +38,7 @@
 #include <linux/of_gpio.h>
 #include <mach/board.h>
 #include <mach/gpiomux.h>
-#include <linux/msm-bus-board.h>
+#include <mach/msm_bus_board.h>
 
 MODULE_LICENSE("GPL v2");
 MODULE_VERSION("0.2");
@@ -143,7 +143,6 @@ enum msm_i2c_state {
 #define I2C_STATUS_CLK_STATE		13
 #define QUP_OUT_FIFO_NOT_EMPTY		0x10
 #define I2C_GPIOS_DT_CNT		(2)		/* sda and scl */
-#define I2C_QUP_MAX_BUS_RECOVERY_RETRY	10
 
 #if defined(CONFIG_INPUT_MAX14688) || defined(CONFIG_LGE_PM_CHARGING_BQ24296_CHARGER) \
 	|| defined(CONFIG_LGE_PM_CHARGING_UNIFIED_WLC) || defined(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI4)
@@ -800,7 +799,7 @@ qup_issue_write(struct qup_i2c_dev *dev, struct i2c_msg *msg, int rem,
 					(uint32_t)dev->base +
 					QUP_OUT_FIFO_BASE + (*idx), 0);
 				*idx += 2;
-			} else if ((dev->pos == msg->len - 1)
+			} else if (next->flags == 0 && dev->pos == msg->len - 1
 					&& *idx < (dev->wr_sz*2) &&
 					(next->addr != msg->addr)) {
 				/* Last byte of an intermittent write */
@@ -927,13 +926,14 @@ static int qup_i2c_reset(struct qup_i2c_dev *dev)
 	return ret;
 }
 
-static int qup_i2c_try_recover_bus_busy(struct qup_i2c_dev *dev)
+static int qup_i2c_recover_bus_busy(struct qup_i2c_dev *dev)
 {
 	int ret;
 	u32 status;
 	ulong min_sleep_usec;
 
 	disable_irq(dev->err_irq);
+	dev_info(dev->dev, "Executing bus recovery procedure (9 clk pulse)\n");
 
 	qup_i2c_reset(dev);
 
@@ -961,29 +961,12 @@ static int qup_i2c_try_recover_bus_busy(struct qup_i2c_dev *dev)
 	usleep_range(min_sleep_usec, min_sleep_usec * 10);
 
 	status = readl_relaxed(dev->base + QUP_I2C_STATUS);
+	dev_info(dev->dev, "Bus recovery %s\n",
+		(status & I2C_STATUS_BUS_ACTIVE) ? "fail" : "success");
 
 recovery_end:
 	enable_irq(dev->err_irq);
 	return ret;
-}
-
-static void qup_i2c_recover_bus_busy(struct qup_i2c_dev *dev)
-{
-	u32 bus_clr, bus_active, status;
-	int retry = 0;
-	dev_info(dev->dev, "Executing bus recovery procedure (9 clk pulse)\n");
-
-	do {
-		qup_i2c_try_recover_bus_busy(dev);
-		bus_clr    = readl_relaxed(dev->base + QUP_I2C_MASTER_BUS_CLR);
-		status     = readl_relaxed(dev->base + QUP_I2C_STATUS);
-		bus_active = status & I2C_STATUS_BUS_ACTIVE;
-		if (++retry >= I2C_QUP_MAX_BUS_RECOVERY_RETRY)
-			break;
-	} while (bus_clr || bus_active);
-
-	dev_info(dev->dev, "Bus recovery %s after %d retries\n",
-		(bus_clr || bus_active) ? "fail" : "success", retry);
 }
 
 static int
@@ -1231,7 +1214,7 @@ timeout_err:
 				} else if (dev->err < 0) {
 					dev_err(dev->dev,
 					"QUP data xfer error %d\n", dev->err);
-					ret = -EIO;
+					ret = dev->err;
 					goto out_err;
 				} else if (dev->err > 0) {
 					/*
@@ -1242,7 +1225,7 @@ timeout_err:
 					 */
 					qup_i2c_recover_bus_busy(dev);
 				}
-				ret = -EBUSY;
+				ret = -dev->err;
 				goto out_err;
 			}
 			if (dev->msg->flags & I2C_M_RD) {

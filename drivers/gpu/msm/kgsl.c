@@ -57,12 +57,6 @@
 #define pgprot_writethroughcache(_prot)	(_prot)
 #endif
 
-#ifdef CONFIG_ARM_LPAE
-#define KGSL_DMA_BIT_MASK	DMA_BIT_MASK(64)
-#else
-#define KGSL_DMA_BIT_MASK	DMA_BIT_MASK(32)
-#endif
-
 static char *ksgl_mmu_type;
 module_param_named(mmutype, ksgl_mmu_type, charp, 0);
 MODULE_PARM_DESC(ksgl_mmu_type,
@@ -447,7 +441,6 @@ int kgsl_context_init(struct kgsl_device_private *dev_priv,
 {
 	int ret = 0, id;
 	struct kgsl_device *device = dev_priv->device;
-	char name[64];
 
 	idr_preload(GFP_KERNEL);
 	write_lock(&device->context_lock);
@@ -486,8 +479,7 @@ int kgsl_context_init(struct kgsl_device_private *dev_priv,
 	if (ret)
 		goto fail_free_id;
 
-	snprintf(name, sizeof(name), "context-%d", id);
-	kgsl_add_event_group(&context->events, context, name);
+	kgsl_add_event_group(&context->events, context);
 
 	return 0;
 fail_free_id:
@@ -1154,9 +1146,6 @@ kgsl_sharedmem_find_region(struct kgsl_process_private *private,
 {
 	struct rb_node *node;
 
-	if (!private)
-		return NULL;
-
 	if (!kgsl_mmu_gpuaddr_in_range(private->pagetable, gpuaddr))
 		return NULL;
 
@@ -1525,12 +1514,9 @@ static void _kgsl_cmdbatch_timer(unsigned long data)
 			break;
 		}
 		case KGSL_CMD_SYNCPOINT_TYPE_FENCE:
-			if (event->handle && event->handle->fence)
-				pr_err("  fence: [%p] %s\n",
-					event->handle->fence,
-					event->handle->fence->name);
-			else
-				pr_err("  fence: invalid\n");
+			pr_err("  fence: [%p] %s\n", event->handle,
+				(event->handle && event->handle->fence)
+					? event->handle->fence->name : "NULL");
 			break;
 		}
 	}
@@ -1989,7 +1975,7 @@ static struct kgsl_cmdbatch *kgsl_cmdbatch_create(struct kgsl_device *device,
 	cmdbatch->device = device;
 	cmdbatch->ibcount = (flags & KGSL_CONTEXT_SYNC) ? 0 : numibs;
 	cmdbatch->context = context;
-	cmdbatch->flags = flags & ~KGSL_CMDBATCH_SUBMIT_IB_LIST;
+	cmdbatch->flags = flags & ~KGSL_CONTEXT_SUBMIT_IB_LIST;
 
 	/* Add a timer to help debug sync deadlocks */
 	setup_timer(&cmdbatch->timer, _kgsl_cmdbatch_timer,
@@ -2096,7 +2082,7 @@ static struct kgsl_cmdbatch *_kgsl_cmdbatch_create(struct kgsl_device *device,
 		goto done;
 	}
 
-	if (!(flags & KGSL_CMDBATCH_SYNC)) {
+	if (!(flags & KGSL_CONTEXT_SYNC)) {
 		if (copy_from_user(cmdbatch->ibdesc, cmdlist,
 			sizeof(struct kgsl_ibdesc) * numcmds)) {
 			ret = -EFAULT;
@@ -2145,7 +2131,7 @@ long kgsl_ioctl_rb_issueibcmds(struct kgsl_device_private *dev_priv,
 	long result = -EINVAL;
 
 	/* The legacy functions don't support synchronization commands */
-	if (param->flags & KGSL_CMDBATCH_SYNC)
+	if (param->flags & KGSL_CONTEXT_SYNC)
 		return -EINVAL;
 
 	/* Get the context */
@@ -2153,7 +2139,7 @@ long kgsl_ioctl_rb_issueibcmds(struct kgsl_device_private *dev_priv,
 	if (context == NULL)
 		goto done;
 
-	if (param->flags & KGSL_CMDBATCH_SUBMIT_IB_LIST) {
+	if (param->flags & KGSL_CONTEXT_SUBMIT_IB_LIST) {
 		/*
 		 * Do a quick sanity check on the number of IBs in the
 		 * submission
@@ -2204,7 +2190,7 @@ long kgsl_ioctl_submit_commands(struct kgsl_device_private *dev_priv,
 	long result = -EINVAL;
 
 	/* The number of IBs are completely ignored for sync commands */
-	if (!(param->flags & KGSL_CMDBATCH_SYNC)) {
+	if (!(param->flags & KGSL_CONTEXT_SYNC)) {
 		if (param->numcmds == 0 || param->numcmds > KGSL_MAX_NUMIBS)
 			return -EINVAL;
 	} else if (param->numcmds != 0) {
@@ -3509,7 +3495,7 @@ long kgsl_ioctl_helper(struct file *filep, unsigned int cmd,
 	kgsl_ioctl_func_t func;
 	int ret;
 	char ustack[64];
-	void *uptr = ustack;
+	void *uptr = NULL;
 
 	BUG_ON(dev_priv == NULL);
 
@@ -3518,8 +3504,10 @@ long kgsl_ioctl_helper(struct file *filep, unsigned int cmd,
 
 	nr = _IOC_NR(cmd);
 
-	if (cmd & IOC_INOUT) {
-		if (_IOC_SIZE(cmd) > sizeof(ustack)) {
+	if (cmd & (IOC_IN | IOC_OUT)) {
+		if (_IOC_SIZE(cmd) < sizeof(ustack))
+			uptr = ustack;
+		else {
 			uptr = kzalloc(_IOC_SIZE(cmd), GFP_KERNEL);
 			if (uptr == NULL) {
 				KGSL_MEM_ERR(dev_priv->device,
@@ -3582,7 +3570,7 @@ long kgsl_ioctl_helper(struct file *filep, unsigned int cmd,
 	}
 
 done:
-	if ((cmd & IOC_INOUT) && (uptr != ustack))
+	if (_IOC_SIZE(cmd) >= sizeof(ustack))
 		kfree(uptr);
 
 	return ret;
@@ -4381,11 +4369,6 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 		goto error_dest_work_q;
 	}
 
-	/* Check to see if our device can perform DMA correctly */
-	status = dma_set_coherent_mask(&pdev->dev, KGSL_DMA_BIT_MASK);
-	if (status)
-		goto error_close_mmu;
-
 	status = kgsl_allocate_global(device, &device->memstore,
 		KGSL_MEMSTORE_SIZE, 0);
 
@@ -4395,20 +4378,6 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 		goto error_close_mmu;
 	}
 
-	/*
-	 * The default request type PM_QOS_REQ_ALL_CORES is
-	 * applicable to all CPU cores that are online and
-	 * would have a power impact when there are more
-	 * number of CPUs. PM_QOS_REQ_AFFINE_IRQ request
-	 * type shall update/apply the vote only to that CPU to
-	 * which IRQ's affinity is set to.
-	 */
-#ifdef CONFIG_SMP
-
-	device->pwrctrl.pm_qos_req_dma.type = PM_QOS_REQ_AFFINE_IRQ;
-	device->pwrctrl.pm_qos_req_dma.irq = device->pwrctrl.interrupt_num;
-
-#endif
 	pm_qos_add_request(&device->pwrctrl.pm_qos_req_dma,
 				PM_QOS_CPU_DMA_LATENCY,
 				PM_QOS_DEFAULT_VALUE);
@@ -4416,8 +4385,8 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 
 	device->events_wq = create_workqueue("kgsl-events");
 
-	kgsl_add_event_group(&device->global_events, NULL, "global");
-	kgsl_add_event_group(&device->iommu_events, NULL, "iommu");
+	kgsl_add_event_group(&device->global_events, NULL);
+	kgsl_add_event_group(&device->iommu_events, NULL);
 
 	/* Initalize the snapshot engine */
 	kgsl_device_snapshot_init(device);

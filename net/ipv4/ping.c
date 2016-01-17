@@ -707,7 +707,7 @@ int ping_v4_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		if (msg->msg_namelen < sizeof(*usin))
 			return -EINVAL;
 		if (usin->sin_family != AF_INET)
-			return -EINVAL;
+			return -EAFNOSUPPORT; // fixed cts fail about libcore.io.OsTest#test_socketPing
 		daddr = usin->sin_addr.s_addr;
 		/* no remote port */
 	} else {

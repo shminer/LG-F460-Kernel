@@ -174,13 +174,6 @@ struct diag_dci_header_t {
 	uint8_t cmd_code;
 } __packed;
 
-struct diag_dci_pkt_rsp_header_t {
-       int type;
-       int length;
-       uint8_t delete_flag;
-       int uid;
-} __packed;
-
 struct dci_ops_tbl_t {
 	unsigned char log_mask_composite[DCI_LOG_MASK_SIZE];
 	unsigned char event_mask_composite[DCI_EVENT_MASK_SIZE];

@@ -33,7 +33,7 @@
  */
 #define HALT_CHECK_MAX_LOOPS	500
 /* For clock without halt checking, wait this long after enables/disables. */
-#define HALT_CHECK_DELAY_US	500
+#define HALT_CHECK_DELAY_US	10
 
 /*
  * When updating an RCG configuration, check the update bit up to this number
@@ -223,7 +223,7 @@ static long rcg_clk_list_rate(struct clk *c, unsigned n)
 static struct clk *_rcg_clk_get_parent(struct rcg_clk *rcg, int has_mnd)
 {
 	u32 n_regval = 0, m_regval = 0, d_regval = 0;
-	u32 cfg_regval, div, div_regval;
+	u32 cfg_regval;
 	struct clk_freq_tbl *freq;
 	u32 cmd_rcgr_regval;
 
@@ -265,16 +265,8 @@ static struct clk *_rcg_clk_get_parent(struct rcg_clk *rcg, int has_mnd)
 
 	/* Figure out what rate the rcg is running at */
 	for (freq = rcg->freq_tbl; freq->freq_hz != FREQ_END; freq++) {
-		/* source select does not match */
-		if ((freq->div_src_val & CFG_RCGR_SRC_SEL_MASK)
-		    != (cfg_regval & CFG_RCGR_SRC_SEL_MASK))
+		if (freq->div_src_val != cfg_regval)
 			continue;
-		/* divider does not match */
-		div = freq->div_src_val & CFG_RCGR_DIV_MASK;
-		div_regval = cfg_regval & CFG_RCGR_DIV_MASK;
-		if (div != div_regval && (div > 1 || div_regval > 1))
-			continue;
-
 		if (has_mnd) {
 			if (freq->m_val != m_regval)
 				continue;
@@ -282,8 +274,6 @@ static struct clk *_rcg_clk_get_parent(struct rcg_clk *rcg, int has_mnd)
 				continue;
 			if (freq->d_val != d_regval)
 				continue;
-		} else if (freq->n_val) {
-			continue;
 		}
 		break;
 	}
@@ -1138,8 +1128,6 @@ static int gate_clk_enable(struct clk *c)
 	regval |= g->en_mask;
 	writel_relaxed(regval, GATE_EN_REG(g));
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
-	if (g->delay_us)
-		udelay(g->delay_us);
 
 	return 0;
 }
@@ -1155,8 +1143,6 @@ static void gate_clk_disable(struct clk *c)
 	regval &= ~(g->en_mask);
 	writel_relaxed(regval, GATE_EN_REG(g));
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
-	if (g->delay_us)
-		udelay(g->delay_us);
 }
 
 static void __iomem *gate_clk_list_registers(struct clk *c, int n,
@@ -1354,8 +1340,6 @@ struct clk_ops clk_ops_vote = {
 struct clk_ops clk_ops_gate = {
 	.enable = gate_clk_enable,
 	.disable = gate_clk_disable,
-	.get_rate = parent_get_rate,
-	.round_rate = parent_round_rate,
 	.handoff = gate_clk_handoff,
 	.list_registers = gate_clk_list_registers,
 };

@@ -719,6 +719,7 @@ DEFINE_EVENT(station_del, rdev_del_station,
 		 struct station_del_parameters *params),
 	TP_ARGS(wiphy, netdev, params)
 );
+
 DEFINE_EVENT(wiphy_netdev_mac_evt, rdev_get_station,
 	TP_PROTO(struct wiphy *wiphy, struct net_device *netdev, const u8 *mac),
 	TP_ARGS(wiphy, netdev, mac)
@@ -2059,8 +2060,7 @@ TRACE_EVENT(cfg80211_michael_mic_failure,
 		MAC_ASSIGN(addr, addr);
 		__entry->key_type = key_type;
 		__entry->key_id = key_id;
-		if (tsc)
-			memcpy(__entry->tsc, tsc, 6);
+		memcpy(__entry->tsc, tsc, 6);
 	),
 	TP_printk(NETDEV_PR_FMT ", " MAC_PR_FMT ", key type: %d, key id: %d, tsc: %pm",
 		  NETDEV_PR_ARG, MAC_PR_ARG(addr), __entry->key_type,

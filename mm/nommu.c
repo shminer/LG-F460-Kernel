@@ -15,7 +15,6 @@
 
 #include <linux/export.h>
 #include <linux/mm.h>
-#include <linux/vmacache.h>
 #include <linux/mman.h>
 #include <linux/swap.h>
 #include <linux/file.h>
@@ -766,23 +765,16 @@ static void add_vma_to_mm(struct mm_struct *mm, struct vm_area_struct *vma)
  */
 static void delete_vma_from_mm(struct vm_area_struct *vma)
 {
-	int i;
 	struct address_space *mapping;
 	struct mm_struct *mm = vma->vm_mm;
-	struct task_struct *curr = current;
 
 	kenter("%p", vma);
 
 	protect_vma(vma, 0);
 
 	mm->map_count--;
-	for (i = 0; i < VMACACHE_SIZE; i++) {
-		/* if the vma is cached, invalidate the entire cache */
-		if (curr->vmacache[i] == vma) {
-			vmacache_invalidate(curr->mm);
-			break;
-		}
-	}
+	if (mm->mmap_cache == vma)
+		mm->mmap_cache = NULL;
 
 	/* remove the VMA from the mapping */
 	if (vma->vm_file) {
@@ -830,8 +822,8 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
 	struct vm_area_struct *vma;
 
 	/* check the cache first */
-	vma = vmacache_find(mm, addr);
-	if (likely(vma))
+	vma = ACCESS_ONCE(mm->mmap_cache);
+	if (vma && vma->vm_start <= addr && vma->vm_end > addr)
 		return vma;
 
 	/* trawl the list (there may be multiple mappings in which addr
@@ -840,7 +832,7 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
 		if (vma->vm_start > addr)
 			return NULL;
 		if (vma->vm_end > addr) {
-			vmacache_update(addr, vma);
+			mm->mmap_cache = vma;
 			return vma;
 		}
 	}
@@ -879,8 +871,8 @@ static struct vm_area_struct *find_vma_exact(struct mm_struct *mm,
 	unsigned long end = addr + len;
 
 	/* check the cache first */
-	vma = vmacache_find_exact(mm, addr, end);
-	if (vma)
+	vma = mm->mmap_cache;
+	if (vma && vma->vm_start == addr && vma->vm_end == end)
 		return vma;
 
 	/* trawl the list (there may be multiple mappings in which addr
@@ -891,7 +883,7 @@ static struct vm_area_struct *find_vma_exact(struct mm_struct *mm,
 		if (vma->vm_start > addr)
 			return NULL;
 		if (vma->vm_end == end) {
-			vmacache_update(addr, vma);
+			mm->mmap_cache = vma;
 			return vma;
 		}
 	}
@@ -1877,6 +1869,10 @@ unsigned long arch_get_unmapped_area(struct file *file, unsigned long addr,
 	return -ENOMEM;
 }
 
+void arch_unmap_area(struct mm_struct *mm, unsigned long addr)
+{
+}
+
 void unmap_mapping_range(struct address_space *mapping,
 			 loff_t const holebegin, loff_t const holelen,
 			 int even_cows)
@@ -1902,7 +1898,7 @@ EXPORT_SYMBOL(unmap_mapping_range);
  */
 int __vm_enough_memory(struct mm_struct *mm, long pages, int cap_sys_admin)
 {
-	long free, allowed, reserve;
+	unsigned long free, allowed, reserve;
 
 	vm_acct_memory(pages);
 
@@ -1967,7 +1963,7 @@ int __vm_enough_memory(struct mm_struct *mm, long pages, int cap_sys_admin)
 	 */
 	if (mm) {
 		reserve = sysctl_user_reserve_kbytes >> (PAGE_SHIFT - 10);
-		allowed -= min_t(long, mm->total_vm / 32, reserve);
+		allowed -= min(mm->total_vm / 32, reserve);
 	}
 
 	if (percpu_counter_read_positive(&vm_committed_as) < allowed)

@@ -1,9 +1,9 @@
-/* drivers/cpufreq/qcom-cpufreq.c
+/* arch/arm/mach-msm/cpufreq.c
  *
  * MSM architecture cpufreq driver
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2007-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2007-2014, The Linux Foundation. All rights reserved.
  * Author: Mike A. Chan <mikechan@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -24,21 +24,32 @@
 #include <linux/completion.h>
 #include <linux/cpu.h>
 #include <linux/cpumask.h>
+#include <linux/sched.h>
+#include <linux/sched/rt.h>
 #include <linux/suspend.h>
 #include <linux/clk.h>
 #include <linux/err.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
+#include <soc/qcom/cpufreq.h>
 #include <trace/events/power.h>
+
+#ifdef CONFIG_DEBUG_FS
+#include <linux/debugfs.h>
+#include <linux/seq_file.h>
+#include <asm/div64.h>
+#endif
 
 static DEFINE_MUTEX(l2bw_lock);
 
 static struct clk *cpu_clk[NR_CPUS];
 static struct clk *l2_clk;
-static DEFINE_PER_CPU(struct cpufreq_frequency_table *, freq_table);
-#ifdef CONFIG_MSM_CPU_VOLTAGE_CONTROL
-static struct cpufreq_frequency_table *krait_freq_table;
-#endif
+static unsigned int freq_index[NR_CPUS];
+static unsigned int max_freq_index;
+static struct cpufreq_frequency_table *freq_table;
+static unsigned int *l2_khz;
+static bool is_sync;
+static unsigned long *mem_bw;
 static bool hotplug_ready;
 
 struct cpufreq_work_struct {
@@ -60,16 +71,65 @@ struct cpufreq_suspend_t {
 
 static DEFINE_PER_CPU(struct cpufreq_suspend_t, cpufreq_suspend);
 
+unsigned long msm_cpufreq_get_bw(void)
+{
+	return mem_bw[max_freq_index];
+}
+
+static void update_l2_bw(int *also_cpu)
+{
+	int rc = 0, cpu;
+	unsigned int index = 0;
+
+	mutex_lock(&l2bw_lock);
+
+	if (also_cpu)
+		index = freq_index[*also_cpu];
+
+	for_each_online_cpu(cpu) {
+		index = max(index, freq_index[cpu]);
+	}
+
+	if (l2_clk)
+		rc = clk_set_rate(l2_clk, l2_khz[index] * 1000);
+	if (rc) {
+		pr_err("Error setting L2 clock rate!\n");
+		goto out;
+	}
+
+	max_freq_index = index;
+	rc = devfreq_msm_cpufreq_update_bw();
+	if (rc)
+		pr_err("Unable to update BW (%d)\n", rc);
+
+out:
+	mutex_unlock(&l2bw_lock);
+}
+
 static int set_cpu_freq(struct cpufreq_policy *policy, unsigned int new_freq,
 			unsigned int index)
 {
 	int ret = 0;
+	int saved_sched_policy = -EINVAL;
+	int saved_sched_rt_prio = -EINVAL;
 	struct cpufreq_freqs freqs;
+	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
 	unsigned long rate;
 
 	freqs.old = policy->cur;
 	freqs.new = new_freq;
 	freqs.cpu = policy->cpu;
+
+	/*
+	 * Put the caller into SCHED_FIFO priority to avoid cpu starvation
+	 * while increasing frequencies
+	 */
+
+	if (freqs.new > freqs.old && current->policy != SCHED_FIFO) {
+		saved_sched_policy = current->policy;
+		saved_sched_rt_prio = current->rt_priority;
+		sched_setscheduler_nocheck(current, SCHED_FIFO, &param);
+	}
 
 	cpufreq_notify_transition(policy, &freqs, CPUFREQ_PRECHANGE);
 
@@ -79,10 +139,17 @@ static int set_cpu_freq(struct cpufreq_policy *policy, unsigned int new_freq,
 	rate = clk_round_rate(cpu_clk[policy->cpu], rate);
 	ret = clk_set_rate(cpu_clk[policy->cpu], rate);
 	if (!ret) {
-		cpufreq_notify_transition(policy, &freqs, CPUFREQ_POSTCHANGE);
+		freq_index[policy->cpu] = index;
+		update_l2_bw(NULL);
 		trace_cpu_frequency_switch_end(policy->cpu);
+		cpufreq_notify_transition(policy, &freqs, CPUFREQ_POSTCHANGE);
 	}
 
+	/* Restore priority after clock ramp-up */
+	if (freqs.new > freqs.old && saved_sched_policy >= 0) {
+		param.sched_priority = saved_sched_rt_prio;
+		sched_setscheduler_nocheck(current, saved_sched_policy, &param);
+	}
 	return ret;
 }
 
@@ -100,16 +167,13 @@ static int msm_cpufreq_target(struct cpufreq_policy *policy,
 				unsigned int target_freq,
 				unsigned int relation)
 {
-	int ret = 0;
+	int ret = -EFAULT;
 	int index;
 	struct cpufreq_frequency_table *table;
 
 	struct cpufreq_work_struct *cpu_work = NULL;
 
 	mutex_lock(&per_cpu(cpufreq_suspend, policy->cpu).suspend_mutex);
-
-	if (target_freq == policy->cur)
-		goto done;
 
 	if (per_cpu(cpufreq_suspend, policy->cpu).device_suspended) {
 		pr_debug("cpufreq: cpu%d scheduling frequency change "
@@ -157,6 +221,8 @@ static int msm_cpufreq_verify(struct cpufreq_policy *policy)
 
 static unsigned int msm_cpufreq_get_freq(unsigned int cpu)
 {
+	if (is_sync)
+		cpu = 0;
 	return clk_get_rate(cpu_clk[cpu]) / 1000;
 }
 
@@ -165,25 +231,27 @@ static int msm_cpufreq_init(struct cpufreq_policy *policy)
 	int cur_freq;
 	int index;
 	int ret = 0;
-	struct cpufreq_frequency_table *table =
-			per_cpu(freq_table, policy->cpu);
+	struct cpufreq_frequency_table *table;
 	struct cpufreq_work_struct *cpu_work = NULL;
-	int cpu;
 
+	table = cpufreq_frequency_get_table(policy->cpu);
+	if (table == NULL)
+		return -ENODEV;
 	/*
-	 * In some SoC, some cores are clocked by same source, and their
-	 * frequencies can not be changed independently. Find all other
-	 * CPUs that share same clock, and mark them as controlled by
-	 * same policy.
+	 * In some SoC, cpu cores' frequencies can not
+	 * be changed independently. Each cpu is bound to
+	 * same frequency. Hence set the cpumask to all cpu.
 	 */
-	for_each_possible_cpu(cpu) {
-		if (cpu_clk[cpu] == cpu_clk[policy->cpu]) {
-			cpumask_set_cpu(cpu, policy->cpus);
-			cpu_work = &per_cpu(cpufreq_work, cpu);
-			INIT_WORK(&cpu_work->work, set_cpu_work);
-			init_completion(&cpu_work->complete);
-		}
-	}
+	if (is_sync)
+		cpumask_setall(policy->cpus);
+
+	cpu_work = &per_cpu(cpufreq_work, policy->cpu);
+	INIT_WORK(&cpu_work->work, set_cpu_work);
+	init_completion(&cpu_work->complete);
+
+	/* synchronous cpus share the same policy */
+	if (!cpu_clk[policy->cpu])
+		return 0;
 
 	if (cpufreq_frequency_table_cpuinfo(policy, table)) {
 #ifdef CONFIG_MSM_CPU_FREQ_SET_MIN_MAX
@@ -217,7 +285,6 @@ static int msm_cpufreq_init(struct cpufreq_policy *policy)
 	pr_debug("cpufreq: cpu%d init at %d switching to %d\n",
 			policy->cpu, cur_freq, table[index].frequency);
 	policy->cur = table[index].frequency;
-	cpufreq_frequency_table_get_attr(table, policy->cpu);
 
 	return 0;
 }
@@ -233,22 +300,19 @@ static int msm_cpufreq_cpu_callback(struct notifier_block *nfb,
 		return NOTIFY_BAD;
 
 	switch (action & ~CPU_TASKS_FROZEN) {
-
-	case CPU_DYING:
-		clk_disable(cpu_clk[cpu]);
-		clk_disable(l2_clk);
-		break;
 	/*
 	 * Scale down clock/power of CPU that is dead and scale it back up
 	 * before the CPU is brought up.
 	 */
 	case CPU_DEAD:
-		clk_unprepare(cpu_clk[cpu]);
-		clk_unprepare(l2_clk);
+		clk_disable_unprepare(cpu_clk[cpu]);
+		clk_disable_unprepare(l2_clk);
+		update_l2_bw(NULL);
 		break;
 	case CPU_UP_CANCELED:
 		clk_unprepare(cpu_clk[cpu]);
 		clk_unprepare(l2_clk);
+		update_l2_bw(NULL);
 		break;
 	case CPU_UP_PREPARE:
 		rc = clk_prepare(l2_clk);
@@ -259,6 +323,7 @@ static int msm_cpufreq_cpu_callback(struct notifier_block *nfb,
 			clk_unprepare(l2_clk);
 			return NOTIFY_BAD;
 		}
+		update_l2_bw(&cpu);
 		break;
 
 	case CPU_STARTING:
@@ -298,17 +363,13 @@ static int msm_cpufreq_suspend(void)
 
 static int msm_cpufreq_resume(void)
 {
-	int cpu;
-#ifndef CONFIG_CPU_BOOST
-	int ret;
+	int cpu, ret;
 	struct cpufreq_policy policy;
-#endif
 
 	for_each_possible_cpu(cpu) {
 		per_cpu(cpufreq_suspend, cpu).device_suspended = 0;
 	}
 
-#ifndef CONFIG_CPU_BOOST
 	/*
 	 * Freq request might be rejected during suspend, resulting
 	 * in policy->cur violating min/max constraint.
@@ -330,7 +391,6 @@ static int msm_cpufreq_resume(void)
 				cpu);
 	}
 	put_online_cpus();
-#endif
 
 	return NOTIFY_DONE;
 }
@@ -370,45 +430,51 @@ static struct cpufreq_driver msm_cpufreq_driver = {
 	.attr		= msm_freq_attr,
 };
 
-static struct cpufreq_frequency_table *cpufreq_parse_dt(struct device *dev,
-						char *tbl_name, int cpu)
+#define PROP_TBL "qcom,cpufreq-table"
+static int cpufreq_parse_dt(struct device *dev)
 {
-	int ret, nf, i;
+	int ret, len, nf, num_cols = 2, i, j;
 	u32 *data;
-	struct cpufreq_frequency_table *ftbl;
 
-	/* Parse list of usable CPU frequencies. */
-	if (!of_find_property(dev->of_node, tbl_name, &nf))
-		return ERR_PTR(-EINVAL);
-	nf /= sizeof(*data);
+	if (l2_clk)
+		num_cols++;
 
-	if (nf == 0)
-		return ERR_PTR(-EINVAL);
+	/* Parse CPU freq -> L2/Mem BW map table. */
+	if (!of_find_property(dev->of_node, PROP_TBL, &len))
+		return -EINVAL;
+	len /= sizeof(*data);
 
-	data = devm_kzalloc(dev, nf * sizeof(*data), GFP_KERNEL);
+	if (len % num_cols || len == 0)
+		return -EINVAL;
+	nf = len / num_cols;
+
+	data = devm_kzalloc(dev, len * sizeof(*data), GFP_KERNEL);
 	if (!data)
-		return ERR_PTR(-ENOMEM);
+		return -ENOMEM;
 
-	ret = of_property_read_u32_array(dev->of_node, tbl_name, data, nf);
+	ret = of_property_read_u32_array(dev->of_node, PROP_TBL, data, len);
 	if (ret)
-		return ERR_PTR(ret);
+		return ret;
 
-	ftbl = devm_kzalloc(dev, (nf + 1) * sizeof(*ftbl), GFP_KERNEL);
-	if (!ftbl)
-		return ERR_PTR(-ENOMEM);
+	/* Allocate all data structures. */
+	freq_table = devm_kzalloc(dev, (nf + 1) * sizeof(*freq_table),
+				  GFP_KERNEL);
+	mem_bw = devm_kzalloc(dev, nf * sizeof(*mem_bw), GFP_KERNEL);
 
-#ifdef CONFIG_MSM_CPU_VOLTAGE_CONTROL
-	/* Create frequence table with unrounded values */
-	krait_freq_table = devm_kzalloc(dev, (nf + 1) * sizeof(*krait_freq_table),
-					GFP_KERNEL);
-	if (!krait_freq_table)
-		return ERR_PTR(-ENOMEM);
-#endif
+	if (!freq_table || !mem_bw)
+		return -ENOMEM;
 
+	if (l2_clk) {
+		l2_khz = devm_kzalloc(dev, nf * sizeof(*l2_khz), GFP_KERNEL);
+		if (!l2_khz)
+			return -ENOMEM;
+	}
+
+	j = 0;
 	for (i = 0; i < nf; i++) {
 		unsigned long f;
 
-		f = clk_round_rate(cpu_clk[cpu], data[i] * 1000);
+		f = clk_round_rate(cpu_clk[0], data[j++] * 1000);
 		if (IS_ERR_VALUE(f))
 			break;
 		f /= 1000;
@@ -428,51 +494,77 @@ static struct cpufreq_frequency_table *cpufreq_parse_dt(struct device *dev,
 		 * In this case, we can CPUfreq to use 2.2 GHz and 2.3 GHz
 		 * instead of rejecting the 2.5 GHz table entry.
 		 */
-		if (i > 0 && f <= ftbl[i-1].frequency)
+		if (i > 0 && f <= freq_table[i-1].frequency)
 			break;
 
-		ftbl[i].driver_data = i;
-		ftbl[i].frequency = f;
-#ifdef CONFIG_MSM_CPU_VOLTAGE_CONTROL
-		krait_freq_table[i].frequency = data[i];
-#endif
+		freq_table[i].driver_data = i;
+		freq_table[i].frequency = f;
+
+		if (l2_clk) {
+			f = clk_round_rate(l2_clk, data[j++] * 1000);
+			if (IS_ERR_VALUE(f)) {
+				pr_err("Error finding L2 rate for CPU %d KHz\n",
+					freq_table[i].frequency);
+				freq_table[i].frequency = CPUFREQ_ENTRY_INVALID;
+			} else {
+				f /= 1000;
+				l2_khz[i] = f;
+			}
+		}
+
+		mem_bw[i] = data[j++];
 	}
 
-	ftbl[i].driver_data = i;
-	ftbl[i].frequency = CPUFREQ_TABLE_END;
-#ifdef CONFIG_MSM_CPU_VOLTAGE_CONTROL
-	krait_freq_table[i].frequency = CPUFREQ_TABLE_END;
-#endif
+	freq_table[i].driver_data = i;
+	freq_table[i].frequency = CPUFREQ_TABLE_END;
 
 	devm_kfree(dev, data);
 
-	return ftbl;
+	return 0;
 }
 
-#ifdef CONFIG_MSM_CPU_VOLTAGE_CONTROL
-int use_for_scaling(unsigned int freq)
+#ifdef CONFIG_DEBUG_FS
+static int msm_cpufreq_show(struct seq_file *m, void *unused)
 {
-	unsigned int i;
+	unsigned int i, cpu_freq;
 
-	if (!krait_freq_table)
-		return -EINVAL;
+	if (!freq_table)
+		return 0;
 
-	for (i = 0; krait_freq_table[i].frequency < CPUFREQ_TABLE_END; i++)
-		if (freq == krait_freq_table[i].frequency)
-			return freq;
+	seq_printf(m, "%10s%10s", "CPU (KHz)", "L2 (KHz)");
+	seq_printf(m, "%12s\n", "Mem (MBps)");
 
-	return -EINVAL;
+	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++) {
+		cpu_freq = freq_table[i].frequency;
+		if (cpu_freq == CPUFREQ_ENTRY_INVALID)
+			continue;
+		seq_printf(m, "%10d", cpu_freq);
+		seq_printf(m, "%10d", l2_khz ? l2_khz[i] : cpu_freq);
+		seq_printf(m, "%12lu", mem_bw[i]);
+		seq_printf(m, "\n");
+	}
+	return 0;
 }
+
+static int msm_cpufreq_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, msm_cpufreq_show, inode->i_private);
+}
+
+const struct file_operations msm_cpufreq_fops = {
+	.open		= msm_cpufreq_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
 #endif
 
 static int __init msm_cpufreq_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	char clk_name[] = "cpu??_clk";
-	char tbl_name[] = "qcom,cpufreq-table-??";
 	struct clk *c;
-	int cpu;
-	struct cpufreq_frequency_table *ftbl;
+	int cpu, ret;
 
 	l2_clk = devm_clk_get(dev, "l2_clk");
 	if (IS_ERR(l2_clk))
@@ -481,60 +573,35 @@ static int __init msm_cpufreq_probe(struct platform_device *pdev)
 	for_each_possible_cpu(cpu) {
 		snprintf(clk_name, sizeof(clk_name), "cpu%d_clk", cpu);
 		c = devm_clk_get(dev, clk_name);
-		if (IS_ERR(c))
-			return PTR_ERR(c);
-		cpu_clk[cpu] = c;
+		if (!IS_ERR(c))
+			cpu_clk[cpu] = c;
+		else
+			is_sync = true;
 	}
+
+	if (!cpu_clk[0])
+		return -ENODEV;
 	hotplug_ready = true;
 
-	/* Use per-policy governor tunable for some targets */
-	if (of_property_read_bool(dev->of_node, "qcom,governor-per-policy"))
-		msm_cpufreq_driver.flags |= CPUFREQ_HAVE_GOVERNOR_PER_POLICY;
+	ret = cpufreq_parse_dt(dev);
+	if (ret)
+		return ret;
 
-	/* Parse commong cpufreq table for all CPUs */
-	ftbl = cpufreq_parse_dt(dev, "qcom,cpufreq-table", 0);
-	if (!IS_ERR(ftbl)) {
-		for_each_possible_cpu(cpu)
-			per_cpu(freq_table, cpu) = ftbl;
-		return 0;
-	}
-
-	/*
-	 * No common table. Parse individual tables for each unique
-	 * CPU clock.
-	 */
 	for_each_possible_cpu(cpu) {
-		snprintf(tbl_name, sizeof(tbl_name),
-			 "qcom,cpufreq-table-%d", cpu);
-		ftbl = cpufreq_parse_dt(dev, tbl_name, cpu);
-
-		/* CPU0 must contain freq table */
-		if (cpu == 0 && IS_ERR(ftbl)) {
-			dev_err(dev, "Failed to parse CPU0's freq table\n");
-			return PTR_ERR(ftbl);
-		}
-		if (cpu == 0) {
-			per_cpu(freq_table, cpu) = ftbl;
-			continue;
-		}
-
-		if (cpu_clk[cpu] != cpu_clk[cpu - 1] && IS_ERR(ftbl)) {
-			dev_err(dev, "Failed to parse CPU%d's freq table\n",
-				cpu);
-			return PTR_ERR(ftbl);
-		}
-
-		/* Use previous CPU's table if it shares same clock */
-		if (cpu_clk[cpu] == cpu_clk[cpu - 1]) {
-			if (!IS_ERR(ftbl)) {
-				dev_warn(dev, "Conflicting tables for CPU%d\n",
-					 cpu);
-				devm_kfree(dev, ftbl);
-			}
-			ftbl = per_cpu(freq_table, cpu - 1);
-		}
-		per_cpu(freq_table, cpu) = ftbl;
+		cpufreq_frequency_table_get_attr(freq_table, cpu);
 	}
+
+	ret = register_devfreq_msm_cpufreq();
+	if (ret) {
+		pr_err("devfreq governor registration failed\n");
+		return ret;
+	}
+
+#ifdef CONFIG_DEBUG_FS
+	if (!debugfs_create_file("msm_cpufreq", S_IRUGO, NULL, NULL,
+		&msm_cpufreq_fops))
+		return -ENOMEM;
+#endif
 
 	return 0;
 }

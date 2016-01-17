@@ -42,7 +42,7 @@ int ext4_resize_begin(struct super_block *sb)
 void ext4_resize_end(struct super_block *sb)
 {
 	clear_bit_unlock(EXT4_RESIZING, &EXT4_SB(sb)->s_resize_flags);
-	smp_mb__after_atomic();
+	smp_mb__after_clear_bit();
 }
 
 static ext4_group_t ext4_meta_bg_first_group(struct super_block *sb,
@@ -1066,7 +1066,7 @@ static void update_backups(struct super_block *sb, int blk_off, char *data,
 			break;
 
 		if (meta_bg == 0)
-			backup_block = ((ext4_fsblk_t)group) * bpg + blk_off;
+			backup_block = group * bpg + blk_off;
 		else
 			backup_block = (ext4_group_first_block_no(sb, group) +
 					ext4_bg_has_super(sb, group));

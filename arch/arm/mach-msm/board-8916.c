@@ -16,12 +16,14 @@
 #include <linux/of_platform.h>
 #include <linux/of_fdt.h>
 #include <linux/of_irq.h>
+#include <linux/msm_tsens.h>
+#include <linux/msm_thermal.h>
 #include <asm/mach/arch.h>
 #include <soc/qcom/socinfo.h>
 #include <mach/board.h>
 #include <mach/msm_memtypes.h>
+#include <mach/msm_smd.h>
 #include <soc/qcom/rpm-smd.h>
-#include <soc/qcom/smd.h>
 #include <soc/qcom/smem.h>
 #include <soc/qcom/spm.h>
 #include <soc/qcom/pm.h>
@@ -61,6 +63,8 @@ void __init msm8916_add_drivers(void)
 	msm_rpm_driver_init();
 	msm_spm_device_init();
 	msm_pm_sleep_status_init();
+	tsens_tm_init_driver();
+	msm_thermal_device_init();
 }
 
 static void __init msm8916_init(void)

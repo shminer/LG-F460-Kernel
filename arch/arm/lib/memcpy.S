@@ -12,7 +12,6 @@
 
 #include <linux/linkage.h>
 #include <asm/assembler.h>
-#include <asm/unwind.h>
 
 #define LDR1W_SHIFT	0
 #define STR1W_SHIFT	0
@@ -47,10 +46,6 @@
 
 	.macro enter reg1 reg2
 	stmdb sp!, {r0, \reg1, \reg2}
-	.endm
-
-	.macro usave reg1 reg2
-	UNWIND(	.save	{r0, \reg1, \reg2}	)
 	.endm
 
 	.macro exit reg1 reg2

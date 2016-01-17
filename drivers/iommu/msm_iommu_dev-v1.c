@@ -19,16 +19,16 @@
 #include <linux/clk.h>
 #include <linux/iommu.h>
 #include <linux/interrupt.h>
-#include <linux/msm-bus.h>
 #include <linux/err.h>
 #include <linux/slab.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
 
-#include "msm_iommu_hw-v1.h"
-#include <linux/qcom_iommu.h>
-#include "msm_iommu_perfmon.h"
+#include <mach/iommu_hw-v1.h>
+#include <mach/iommu.h>
+#include <mach/iommu_perfmon.h>
+#include <mach/msm_bus.h>
 
 static struct of_device_id msm_iommu_ctx_match_table[];
 
@@ -196,8 +196,17 @@ static int msm_iommu_parse_dt(struct platform_device *pdev,
 	if (ret)
 		goto fail;
 
-	for_each_available_child_of_node(pdev->dev.of_node, child)
+	for_each_child_of_node(pdev->dev.of_node, child)
 		drvdata->ncb++;
+
+	drvdata->asid = devm_kzalloc(&pdev->dev, drvdata->ncb * sizeof(int),
+				     GFP_KERNEL);
+
+	if (!drvdata->asid) {
+		pr_err("Unable to get memory for asid array\n");
+		ret = -ENOMEM;
+		goto fail;
+	}
 
 	ret = of_property_read_string(pdev->dev.of_node, "label",
 				      &drvdata->name);
@@ -318,8 +327,6 @@ static int msm_iommu_probe(struct platform_device *pdev)
 	if (!drvdata->base)
 		return -ENOMEM;
 
-	drvdata->phys_base = r->start;
-
 	r = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 					"smmu_local_base");
 	if (r) {
@@ -330,9 +337,6 @@ static int msm_iommu_probe(struct platform_device *pdev)
 	}
 
 	drvdata->glb_base = drvdata->base;
-
-	if (of_device_is_compatible(pdev->dev.of_node, "qcom,msm-mmu-500"))
-		drvdata->model = MMU_500;
 
 	if (of_get_property(pdev->dev.of_node, "vdd-supply", NULL)) {
 
@@ -368,9 +372,12 @@ static int msm_iommu_probe(struct platform_device *pdev)
 						   "qcom,needs-alt-iface-clk");
 	if (needs_alt_iface_clk) {
 		drvdata->aiclk = devm_clk_get(&pdev->dev, "alt_iface_clk");
-		if (IS_ERR(drvdata->aiclk))
+		if (IS_ERR(drvdata->aclk))
 			return PTR_ERR(drvdata->aiclk);
 	}
+
+	drvdata->no_atos_support = of_property_read_bool(pdev->dev.of_node,
+						"qcom,no-atos-support");
 
 	if (!of_property_read_u32(pdev->dev.of_node,
 				"qcom,cb-base-offset",
@@ -398,9 +405,8 @@ static int msm_iommu_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	dev_info(&pdev->dev,
-		"device %s (model: %d) mapped at %p, with %d ctx banks\n",
-		drvdata->name, drvdata->model, drvdata->base, drvdata->ncb);
+	dev_info(&pdev->dev, "device %s mapped at %p, with %d ctx banks\n",
+		drvdata->name, drvdata->base, drvdata->ncb);
 
 	platform_set_drvdata(pdev, drvdata);
 
@@ -481,7 +487,6 @@ static int msm_iommu_ctx_parse_dt(struct platform_device *pdev,
 	int irq = 0, ret = 0;
 	struct msm_iommu_drvdata *drvdata;
 	u32 nsid;
-	u32 n_sid_mask;
 	unsigned long cb_offset;
 
 	drvdata = dev_get_drvdata(pdev->dev.parent);
@@ -557,26 +562,6 @@ static int msm_iommu_ctx_parse_dt(struct platform_device *pdev,
 	ctx_drvdata->nsid = nsid;
 
 	ctx_drvdata->asid = -1;
-
-	if (!of_get_property(pdev->dev.of_node, "qcom,iommu-sid-mask",
-						&n_sid_mask)) {
-		memset(ctx_drvdata->sid_mask, 0, MAX_NUM_SMR);
-		goto out;
-	}
-
-	if (n_sid_mask != nsid) {
-		ret = -EINVAL;
-		goto out;
-	}
-
-	if (of_property_read_u32_array(pdev->dev.of_node, "qcom,iommu-sid-mask",
-				ctx_drvdata->sid_mask,
-				n_sid_mask / sizeof(*ctx_drvdata->sid_mask))) {
-		ret = -EINVAL;
-		goto out;
-	}
-	ctx_drvdata->n_sid_mask = n_sid_mask;
-
 out:
 	return ret;
 }

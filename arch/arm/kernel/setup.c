@@ -72,10 +72,10 @@ static int __init fpe_setup(char *line)
 __setup("fpe=", fpe_setup);
 #endif
 
-extern void paging_init(const struct machine_desc *desc);
+extern void paging_init(struct machine_desc *desc);
 extern void sanity_check_meminfo(void);
-extern void reboot_setup(const char *str);
-extern void setup_dma_zone(const struct machine_desc *desc);
+extern void reboot_setup(char *str);
+extern void setup_dma_zone(struct machine_desc *desc);
 
 unsigned int processor_id;
 EXPORT_SYMBOL(processor_id);
@@ -142,7 +142,7 @@ EXPORT_SYMBOL(elf_platform);
 static const char *cpu_name;
 static const char *machine_name;
 static char __initdata cmd_line[COMMAND_LINE_SIZE];
-const struct machine_desc *machine_desc __initdata;
+struct machine_desc *machine_desc __initdata;
 
 static union { char c[4]; unsigned long l; } endian_test __initdata = { { 'l', '?', '?', 'b' } };
 #define ENDIANNESS ((char)endian_test.l)
@@ -521,7 +521,7 @@ static void __init setup_processor(void)
 
 void __init dump_machine_table(void)
 {
-	const struct machine_desc *p;
+	struct machine_desc *p;
 
 	early_print("Available machine support:\n\nID (hex)\tNAME\n");
 	for_each_machine_desc(p)
@@ -535,7 +535,14 @@ void __init dump_machine_table(void)
 
 int __init arm_add_memory(phys_addr_t start, phys_addr_t size)
 {
+	struct membank *bank = &meminfo.bank[meminfo.nr_banks];
 	u64 aligned_start;
+
+	if (meminfo.nr_banks >= NR_BANKS) {
+		printk(KERN_CRIT "NR_BANKS too low, "
+			"ignoring memory at 0x%08llx\n", (long long)start);
+		return -EINVAL;
+	}
 
 	/*
 	 * Ensure that start/size are aligned to a page boundary.
@@ -577,17 +584,17 @@ int __init arm_add_memory(phys_addr_t start, phys_addr_t size)
 		aligned_start = PHYS_OFFSET;
 	}
 
-	start = aligned_start;
-	size = size & ~(phys_addr_t)(PAGE_SIZE - 1);
+	bank->start = aligned_start;
+	bank->size = size & ~(phys_addr_t)(PAGE_SIZE - 1);
 
 	/*
 	 * Check whether this memory region has non-zero size or
 	 * invalid node number.
 	 */
-	if (size == 0)
+	if (bank->size == 0)
 		return -EINVAL;
 
-	memblock_add(start, size);
+	meminfo.nr_banks++;
 	return 0;
 }
 
@@ -595,7 +602,6 @@ int __init arm_add_memory(phys_addr_t start, phys_addr_t size)
  * Pick out the memory size.  We look for mem=size@start,
  * where start and size are "size[KkMm]"
  */
-
 static int __init early_mem(char *p)
 {
 	static int usermem __initdata = 0;
@@ -610,8 +616,7 @@ static int __init early_mem(char *p)
 	 */
 	if (usermem == 0) {
 		usermem = 1;
-		memblock_remove(memblock_start_of_DRAM(),
-			memblock_end_of_DRAM() - memblock_start_of_DRAM());
+		meminfo.nr_banks = 0;
 	}
 
 	start = PHYS_OFFSET;
@@ -625,7 +630,7 @@ static int __init early_mem(char *p)
 }
 early_param("mem", early_mem);
 
-static void __init request_standard_resources(const struct machine_desc *mdesc)
+static void __init request_standard_resources(struct machine_desc *mdesc)
 {
 	struct memblock_region *region;
 	struct resource *res;
@@ -757,6 +762,13 @@ static void __init reserve_crashkernel(void)
 static inline void reserve_crashkernel(void) {}
 #endif /* CONFIG_KEXEC */
 
+static int __init meminfo_cmp(const void *_a, const void *_b)
+{
+	const struct membank *a = _a, *b = _b;
+	long cmp = bank_pfn_start(a) - bank_pfn_start(b);
+	return cmp < 0 ? -1 : cmp > 0 ? 1 : 0;
+}
+
 void __init hyp_mode_check(void)
 {
 #ifdef CONFIG_ARM_VIRT_EXT
@@ -774,7 +786,7 @@ void __init hyp_mode_check(void)
 
 void __init setup_arch(char **cmdline_p)
 {
-	const struct machine_desc *mdesc;
+	struct machine_desc *mdesc;
 
 	setup_processor();
 	mdesc = setup_machine_fdt(__atags_pointer);
@@ -799,9 +811,12 @@ void __init setup_arch(char **cmdline_p)
 
 	parse_early_param();
 
-	/* XXX argh */
+	if (mdesc->init_very_early)
+		mdesc->init_very_early();
+
+	sort(&meminfo.bank, meminfo.nr_banks, sizeof(meminfo.bank[0]), meminfo_cmp, NULL);
 	sanity_check_meminfo();
-	arm_memblock_init(mdesc);
+	arm_memblock_init(&meminfo, mdesc);
 
 	paging_init(mdesc);
 	request_standard_resources(mdesc);
@@ -811,11 +826,11 @@ void __init setup_arch(char **cmdline_p)
 
 	unflatten_device_tree();
 
+	arm_dt_init_cpu_maps();
 #ifdef CONFIG_SMP
 	if (is_smp()) {
 		smp_set_ops(mdesc->smp);
 		smp_init_cpus();
-		arm_dt_init_cpu_maps();
 	}
 #endif
 

@@ -144,7 +144,7 @@ static int ladder_enable_device(struct cpuidle_driver *drv,
 
 	ldev->last_state_idx = CPUIDLE_DRIVER_STATE_START;
 
-	for (i = CPUIDLE_DRIVER_STATE_START; i < drv->state_count; i++) {
+	for (i = 0; i < drv->state_count; i++) {
 		state = &drv->states[i];
 		lstate = &ldev->states[i];
 
@@ -156,7 +156,7 @@ static int ladder_enable_device(struct cpuidle_driver *drv,
 
 		if (i < drv->state_count - 1)
 			lstate->threshold.promotion_time = state->exit_latency;
-		if (i > CPUIDLE_DRIVER_STATE_START)
+		if (i > 0)
 			lstate->threshold.demotion_time = state->exit_latency;
 	}
 
@@ -192,4 +192,14 @@ static int __init init_ladder(void)
 	return cpuidle_register_governor(&ladder_governor);
 }
 
-postcore_initcall(init_ladder);
+/**
+ * exit_ladder - exits the governor
+ */
+static void __exit exit_ladder(void)
+{
+	cpuidle_unregister_governor(&ladder_governor);
+}
+
+MODULE_LICENSE("GPL");
+module_init(init_ladder);
+module_exit(exit_ladder);

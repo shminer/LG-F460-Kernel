@@ -694,7 +694,7 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
 
-	pr_err("%s+: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
+	pr_info("%s+: ctrl=%p ndx=%d\n", __func__, ctrl, ctrl->ndx);
 
 	if (pinfo->dcs_cmd_by_left) {
 		if (ctrl->ndx != DSI_CTRL_LEFT)
@@ -712,11 +712,6 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	if (ctrl->on_cmds.cmd_cnt)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
 #endif
-
-/* sharpening control */
-		ctrl->set_sharpening(ctrl, pinfo->sharpening_level,
-			(void *) 1);
-/* sharpening control */
 
 end:
 	pinfo->blank_state = MDSS_PANEL_BLANK_UNBLANK;
@@ -907,6 +902,7 @@ static void mdss_dsi_parse_trigger(struct device_node *np, char *trigger,
 	}
 }
 
+
 static int mdss_dsi_parse_dcs_cmds(struct device_node *np,
 		struct dsi_panel_cmds *pcmds, char *cmd_key, char *link_key)
 {
@@ -921,7 +917,7 @@ static int mdss_dsi_parse_dcs_cmds(struct device_node *np,
 		pr_err("%s: failed, key=%s\n", __func__, cmd_key);
 		return -ENOMEM;
 	}
-	
+
 	buf = kzalloc(sizeof(char) * blen, GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;
@@ -1177,53 +1173,6 @@ static int mdss_dsi_parse_reset_seq(struct device_node *np,
 	}
 	return 0;
 }
-
-/* sharpening control */
-static int mdss_panel_parse_sharpening(struct device_node *np,
-				struct mdss_panel_info *pinfo,
-				struct mdss_dsi_ctrl_pdata *ctrl_pdata)
-{
-	unsigned int i;
-	char s[50];
-	pinfo->sharpening_level = 40;
-
-	for (i = 0; i <= 40 ; i++) {
-		sprintf(s, "qcom,mdss-dsi-sharpening-lv%d",i);
-		mdss_dsi_parse_dcs_cmds(np, 
-			&ctrl_pdata->sharpening_level[i], s, "qcom,mdss-dsi-sharpening-mode");
-	}
-	return 0;
-}
-
-static int mdss_dsi_panel_set_sharpening(struct mdss_dsi_ctrl_pdata *ctrl,
-	int level, void *resuming)
-{
-	if (ctrl->panel_data.panel_info.sharpening_level == level && !resuming) {
-		pr_info("sharpening already in requested state \n");
-		return 0;
-	}
-	
-	mdss_dsi_panel_cmds_send(ctrl, &ctrl->sharpening_level[level]);
-	
-	ctrl->panel_data.panel_info.sharpening_level = level;
-
-	pr_info("%s: sharpening set level %d for ndx %d\n", __func__,
-		level, ctrl->ndx);
-
-	return 0;
-}
-
-static int mdss_dsi_panel_queue_sharpening(struct mdss_dsi_ctrl_pdata *ctrl,
-	int level)
-{
-	ctrl->panel_data.panel_info.sharpening_level = level;
-
-	pr_info("%s: sharpening set level %d queued for ndx %d\n", __func__,
-		 level, ctrl->ndx);
-
-	return 0;
-}
-/* sharpening control */
 
 static void mdss_dsi_parse_roi_alignment(struct device_node *np,
 		struct mdss_panel_info *pinfo)
@@ -1641,7 +1590,6 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	mdss_dsi_parse_dcs_cmds(np, &lge_ief_off_cmds,
 			"qcom,panel-ief-off-cmds", "qcom,ief-off-dsi-state");
 #endif
-
 	rc = mdss_dsi_parse_panel_features(np, ctrl_pdata);
 	if (rc) {
 		pr_err("%s: failed to parse panel features\n", __func__);
@@ -1650,11 +1598,6 @@ static int mdss_panel_parse_dt(struct device_node *np,
 
 	mdss_dsi_parse_panel_horizintal_line_idle(np, ctrl_pdata);
 
-	if (mdss_panel_parse_sharpening(np, pinfo, ctrl_pdata)) {
-		pr_err("Error parsing sharpening cmds\n");
-		goto error;
-	}
-	
 	return 0;
 
 error:
@@ -1703,11 +1646,6 @@ int mdss_dsi_panel_init(struct device_node *node,
 	ctrl_pdata->off = mdss_dsi_panel_off;
 	ctrl_pdata->low_power_config = mdss_dsi_panel_low_power_config;
 	ctrl_pdata->panel_data.set_backlight = mdss_dsi_panel_bl_ctrl;
-	
-/* sharpening control */
-	ctrl_pdata->set_sharpening = mdss_dsi_panel_set_sharpening;
-	ctrl_pdata->queue_sharpening = mdss_dsi_panel_queue_sharpening;
-/* sharpening control */
 
 #ifdef CONFIG_MACH_LGE
 	/* Panel device is not created in KK release

@@ -125,15 +125,21 @@ int copy_namespaces(unsigned long flags, struct task_struct *tsk)
 	struct nsproxy *old_ns = tsk->nsproxy;
 	struct user_namespace *user_ns = task_cred_xxx(tsk, user_ns);
 	struct nsproxy *new_ns;
+	int err = 0;
 
-	if (likely(!(flags & (CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC |
-			      CLONE_NEWPID | CLONE_NEWNET)))) {
-		get_nsproxy(old_ns);
+	if (!old_ns)
 		return 0;
-	}
 
-	if (!ns_capable(user_ns, CAP_SYS_ADMIN))
-		return -EPERM;
+	get_nsproxy(old_ns);
+
+	if (!(flags & (CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC |
+				CLONE_NEWPID | CLONE_NEWNET)))
+		return 0;
+
+	if (!ns_capable(user_ns, CAP_SYS_ADMIN)) {
+		err = -EPERM;
+		goto out;
+	}
 
 	/*
 	 * CLONE_NEWIPC must detach from the undolist: after switching
@@ -142,16 +148,22 @@ int copy_namespaces(unsigned long flags, struct task_struct *tsk)
 	 * means share undolist with parent, so we must forbid using
 	 * it along with CLONE_NEWIPC.
 	 */
-	if ((flags & (CLONE_NEWIPC | CLONE_SYSVSEM)) ==
-		(CLONE_NEWIPC | CLONE_SYSVSEM)) 
-		return -EINVAL;
+	if ((flags & CLONE_NEWIPC) && (flags & CLONE_SYSVSEM)) {
+		err = -EINVAL;
+		goto out;
+	}
 
 	new_ns = create_new_namespaces(flags, tsk, user_ns, tsk->fs);
-	if (IS_ERR(new_ns))
-		return  PTR_ERR(new_ns);
+	if (IS_ERR(new_ns)) {
+		err = PTR_ERR(new_ns);
+		goto out;
+	}
 
 	tsk->nsproxy = new_ns;
-	return 0;
+
+out:
+	put_nsproxy(old_ns);
+	return err;
 }
 
 void free_nsproxy(struct nsproxy *ns)
@@ -203,13 +215,20 @@ void switch_task_namespaces(struct task_struct *p, struct nsproxy *new)
 
 	might_sleep();
 
-	task_lock(p);
 	ns = p->nsproxy;
-	p->nsproxy = new;
-	task_unlock(p);
 
-	if (ns && atomic_dec_and_test(&ns->count))
+	rcu_assign_pointer(p->nsproxy, new);
+
+	if (ns && atomic_dec_and_test(&ns->count)) {
+		/*
+		 * wait for others to get what they want from this nsproxy.
+		 *
+		 * cannot release this nsproxy via the call_rcu() since
+		 * put_mnt_ns() will want to sleep
+		 */
+		synchronize_rcu();
 		free_nsproxy(ns);
+	}
 }
 
 void exit_task_namespaces(struct task_struct *p)

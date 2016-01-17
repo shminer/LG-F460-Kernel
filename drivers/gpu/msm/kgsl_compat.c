@@ -244,10 +244,6 @@ kgsl_ioctl_gpumem_get_info_compat(struct kgsl_device_private *dev_priv,
 
 	param.gpuaddr = (unsigned long)param32->gpuaddr;
 	param.id = param32->id;
-	param.flags = param32->flags;
-	param.size = (size_t)param32->size;
-	param.mmapsize = (size_t)param32->mmapsize;
-	param.useraddr = (unsigned long)param32->useraddr;
 
 	result = kgsl_ioctl_gpumem_get_info(dev_priv, cmd, &param);
 
@@ -365,22 +361,19 @@ int kgsl_cmdbatch_create_compat(struct kgsl_device *device, unsigned int flags,
 			unsigned int numcmds, void __user *synclist,
 			unsigned int numsyncs)
 {
-	int ret = 0, i;
+	int ret = 0;
+	struct kgsl_ibdesc_compat *cmdbatch_ibdesc;
 
-	if (!(flags & KGSL_CMDBATCH_SYNC)) {
-		for (i = 0; i < numcmds; i++) {
-			struct kgsl_ibdesc_compat cmdbatch_ibdesc;
-			if (copy_from_user(&cmdbatch_ibdesc,
-				cmdlist + (sizeof(struct kgsl_ibdesc_compat)*i),
-				sizeof(struct kgsl_ibdesc_compat)))
-				return -EFAULT;
+	if (!(flags & KGSL_CONTEXT_SYNC)) {
+		if (copy_from_user(cmdbatch_ibdesc, cmdlist,
+			sizeof(struct kgsl_ibdesc_compat) * numcmds))
+			return -EFAULT;
 
-			cmdbatch->ibdesc[i].gpuaddr = (unsigned long)
-						cmdbatch_ibdesc.gpuaddr;
-			cmdbatch->ibdesc[i].sizedwords = (size_t)
-						cmdbatch_ibdesc.sizedwords;
-			cmdbatch->ibdesc[i].ctrl = cmdbatch_ibdesc.ctrl;
-		}
+		cmdbatch->ibdesc->gpuaddr = (unsigned long)
+						cmdbatch_ibdesc->gpuaddr;
+		cmdbatch->ibdesc->sizedwords = (size_t)
+						cmdbatch_ibdesc->sizedwords;
+		cmdbatch->ibdesc->ctrl = cmdbatch_ibdesc->ctrl;
 	}
 	if (synclist && numsyncs) {
 

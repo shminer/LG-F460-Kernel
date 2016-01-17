@@ -141,7 +141,7 @@ static int apply_constraint(struct dev_pm_qos_request *req,
 
 	switch(req->type) {
 	case DEV_PM_QOS_LATENCY:
-		ret = pm_qos_update_target(&qos->latency, &req->data.lat,
+		ret = pm_qos_update_target(&qos->latency, &req->data.pnode,
 					   action, value);
 		if (ret) {
 			value = pm_qos_read_value(&qos->latency);
@@ -153,9 +153,6 @@ static int apply_constraint(struct dev_pm_qos_request *req,
 	case DEV_PM_QOS_FLAGS:
 		ret = pm_qos_update_flags(&qos->flags, &req->data.flr,
 					  action, value);
-		blocking_notifier_call_chain(&dev_pm_notifiers,
-					     (unsigned long)value,
-					     req);
 		break;
 	default:
 		ret = -EINVAL;
@@ -175,7 +172,7 @@ static int dev_pm_qos_constraints_allocate(struct device *dev)
 {
 	struct dev_pm_qos *qos;
 	struct pm_qos_constraints *c;
-	struct blocking_notifier_head *n, *fn;
+	struct blocking_notifier_head *n;
 
 	qos = kzalloc(sizeof(*qos), GFP_KERNEL);
 	if (!qos)
@@ -188,14 +185,6 @@ static int dev_pm_qos_constraints_allocate(struct device *dev)
 	}
 	BLOCKING_INIT_NOTIFIER_HEAD(n);
 
-	fn = kzalloc(sizeof(*fn), GFP_KERNEL);
-	if (!fn) {
-		kfree(n);
-		kfree(qos);
-		return -ENOMEM;
-	}
-	BLOCKING_INIT_NOTIFIER_HEAD(fn);
-
 	c = &qos->latency;
 	plist_head_init(&c->list);
 	c->target_value = PM_QOS_DEV_LAT_DEFAULT_VALUE;
@@ -204,7 +193,6 @@ static int dev_pm_qos_constraints_allocate(struct device *dev)
 	c->notifiers = n;
 
 	INIT_LIST_HEAD(&qos->flags.list);
-	qos->flags.notifiers = fn;
 
 	spin_lock_irq(&dev->power.lock);
 	dev->power.qos = qos;
@@ -249,7 +237,7 @@ void dev_pm_qos_constraints_destroy(struct device *dev)
 
 	/* Flush the constraints lists for the device. */
 	c = &qos->latency;
-	plist_for_each_entry_safe(req, tmp, &c->list, data.lat.node) {
+	plist_for_each_entry_safe(req, tmp, &c->list, data.pnode) {
 		/*
 		 * Update constraints list and call the notification
 		 * callbacks if needed
@@ -352,7 +340,7 @@ static int __dev_pm_qos_update_request(struct dev_pm_qos_request *req,
 
 	switch(req->type) {
 	case DEV_PM_QOS_LATENCY:
-		curr_value = req->data.lat.node.prio;
+		curr_value = req->data.pnode.prio;
 		break;
 	case DEV_PM_QOS_FLAGS:
 		curr_value = req->data.flr.flags;
@@ -468,10 +456,6 @@ int dev_pm_qos_add_notifier(struct device *dev, struct notifier_block *notifier)
 	if (!ret)
 		ret = blocking_notifier_chain_register(
 				dev->power.qos->latency.notifiers, notifier);
-
-	if (!ret)
-		ret = blocking_notifier_chain_register(
-				dev->power.qos->flags.notifiers, notifier);
 
 	mutex_unlock(&dev_pm_qos_mtx);
 	return ret;

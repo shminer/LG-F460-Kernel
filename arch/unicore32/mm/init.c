@@ -392,7 +392,7 @@ void __init mem_init(void)
 	free_unused_memmap(&meminfo);
 
 	/* this will put all unused low memory onto the freelists */
-	free_all_bootmem();
+	totalram_pages += free_all_bootmem();
 
 	reserved_pages = free_pages = 0;
 

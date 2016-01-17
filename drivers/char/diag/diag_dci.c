@@ -128,7 +128,7 @@ static void dci_check_drain_timer(void)
 {
 	if (!dci_timer_in_progress) {
 		dci_timer_in_progress = 1;
-		 mod_timer(&dci_drain_timer, jiffies + msecs_to_jiffies(200));
+		mod_timer(&dci_drain_timer, jiffies + msecs_to_jiffies(500));
 	}
 }
 
@@ -636,8 +636,6 @@ static struct dci_pkt_req_entry_t *diag_register_dci_transaction(int uid,
 	entry->client_id = client_id;
 	entry->uid = uid;
 	entry->tag = driver->dci_tag;
-	pr_debug("diag: Registering DCI cmd req, client_id: %d, uid: %d, tag:%d\n",
-				entry->client_id, entry->uid, entry->tag);
 	list_add_tail(&entry->track, &driver->dci_req_list);
 	mutex_unlock(&driver->dci_mutex);
 
@@ -785,8 +783,6 @@ void extract_dci_pkt_rsp(unsigned char *buf, int len, int data_source,
 	struct diag_dci_buffer_t *rsp_buf = NULL;
 	struct dci_pkt_req_entry_t *req_entry = NULL;
 	unsigned char *temp = buf;
-	int save_req_uid = 0;
-	struct diag_dci_pkt_rsp_header_t pkt_rsp_header;
 
 	if (!buf) {
 		pr_err("diag: Invalid pointer in %s\n", __func__);
@@ -830,7 +826,6 @@ void extract_dci_pkt_rsp(unsigned char *buf, int len, int data_source,
 		return;
 	}
 
-	save_req_uid = req_entry->uid;
 	/* Remove the headers and send only the response to this function */
 	delete_flag = diag_dci_remove_req_entry(temp, rsp_len, req_entry);
 	if (delete_flag < 0)
@@ -859,16 +854,15 @@ void extract_dci_pkt_rsp(unsigned char *buf, int len, int data_source,
 			rsp_buf->data = temp_buf;
 		}
 	}
-
-	/* Fill in packet response header information */
-	pkt_rsp_header.type = DCI_PKT_RSP_TYPE;
+	*(int *)(rsp_buf->data + rsp_buf->data_len) = DCI_PKT_RSP_TYPE;
+	rsp_buf->data_len += sizeof(int);
 	/* Packet Length = Response Length + Length of uid field (int) */
-	pkt_rsp_header.length = rsp_len + sizeof(int);
-	pkt_rsp_header.delete_flag = delete_flag;
-	pkt_rsp_header.uid = save_req_uid;
-	memcpy(rsp_buf->data, &pkt_rsp_header,
-		sizeof(struct diag_dci_pkt_rsp_header_t));
-	rsp_buf->data_len += sizeof(struct diag_dci_pkt_rsp_header_t);
+	*(int *)(rsp_buf->data + rsp_buf->data_len) = rsp_len + sizeof(int);
+	rsp_buf->data_len += sizeof(int);
+	*(uint8_t *)(rsp_buf->data + rsp_buf->data_len) = delete_flag;
+	rsp_buf->data_len += sizeof(uint8_t);
+	*(int *)(rsp_buf->data + rsp_buf->data_len) = req_entry->uid;
+	rsp_buf->data_len += sizeof(int);
 	memcpy(rsp_buf->data + rsp_buf->data_len, temp, rsp_len);
 	rsp_buf->data_len += rsp_len;
 	rsp_buf->data_source = data_source;
@@ -954,12 +948,8 @@ void extract_dci_events(unsigned char *buf, int len, int data_source, int token)
 	/* Move directly to the start of the event series. 1 byte for
 	 * event code and 2 bytes for the length field.
 	 */
-	/* The length field indicates the total length removing the cmd_code
-	 * and the lenght field. The event parsing in that case should happen
-	 * till the end.
-	 */
 	temp_len = 3;
-	while (temp_len < length) {
+	while (temp_len < (length - 1)) {
 		event_id_packet = *(uint16_t *)(buf + temp_len);
 		event_id = event_id_packet & 0x0FFF; /* extract 12 bits */
 		if (event_id_packet & 0x8000) {

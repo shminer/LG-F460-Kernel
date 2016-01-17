@@ -79,7 +79,7 @@ void __init mem_init(void)
 	unsigned long tmp, ram = 0;
 
 	high_memory = (void *) __va(max_low_pfn << PAGE_SHIFT);
-	free_all_bootmem();
+	totalram_pages += free_all_bootmem();
 	setup_zero_page();	/* Setup zeroed pages. */
 	reservedpages = 0;
 

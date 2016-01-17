@@ -118,10 +118,6 @@ enum wcd9xxx_notify_event {
 	WCD9XXX_EVENT_LAST,
 };
 
-struct wcd9xxx_resmgr_cb {
-	int (*cdc_rco_ctrl)(struct snd_soc_codec *, bool);
-};
-
 struct wcd9xxx_resmgr {
 	struct snd_soc_codec *codec;
 	struct wcd9xxx_core_resource *core_res;
@@ -173,8 +169,6 @@ struct wcd9xxx_resmgr {
 	struct mutex codec_bg_clk_lock;
 
 	enum wcd9xxx_cdc_type codec_type;
-
-	const struct wcd9xxx_resmgr_cb *resmgr_cb;
 };
 
 int wcd9xxx_resmgr_init(struct wcd9xxx_resmgr *resmgr,
@@ -183,7 +177,6 @@ int wcd9xxx_resmgr_init(struct wcd9xxx_resmgr *resmgr,
 			struct wcd9xxx_pdata *pdata,
 			struct wcd9xxx_micbias_setting *micbias_pdata,
 			struct wcd9xxx_reg_address *reg_addr,
-			const struct wcd9xxx_resmgr_cb *resmgr_cb,
 			enum wcd9xxx_cdc_type cdc_type);
 void wcd9xxx_resmgr_deinit(struct wcd9xxx_resmgr *resmgr);
 

@@ -22,7 +22,7 @@
 #include <linux/power_supply.h>
 #include <linux/slab.h>
 #include <linux/power/max17048_battery.h>
-#include <soc/qcom/smsm.h>
+#include <mach/msm_smsm.h>
 
 #ifdef CONFIG_LGE_PM
 #include <linux/interrupt.h>
@@ -1078,8 +1078,8 @@ static int max17048_parse_dt(struct device *dev,
 		mdata->empty = 0;
 	}
 #endif
-#else /*
-                                                        */
+#else /* If CONFIG_LGE_PM_BATTERY_ID_CHECKER is not defined,
+		cutoff voltage = 3.2V and LGChem battery value is set */
 	rc = of_property_read_u32(dev_node, "max17048,rcomp",
 			&mdata->rcomp);
 	rc = of_property_read_u32(dev_node, "max17048,temp_co_hot",

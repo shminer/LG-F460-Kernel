@@ -18,6 +18,8 @@
 #include <linux/memory.h>
 #include <linux/regulator/krait-regulator.h>
 #include <linux/regulator/rpm-smd-regulator.h>
+#include <linux/msm_tsens.h>
+#include <linux/msm_thermal.h>
 #include <linux/clk/msm-clk-provider.h>
 #include <asm/mach/map.h>
 #include <asm/mach/arch.h>
@@ -25,10 +27,10 @@
 #include <mach/gpiomux.h>
 #include <mach/msm_iomap.h>
 #include <mach/msm_memtypes.h>
+#include <mach/msm_smd.h>
 #include <mach/restart.h>
 #include <soc/qcom/socinfo.h>
 #include <soc/qcom/rpm-smd.h>
-#include <soc/qcom/smd.h>
 #include <soc/qcom/smem.h>
 #include <soc/qcom/spm.h>
 #include <soc/qcom/pm.h>
@@ -54,6 +56,11 @@ void __init apq8084_reserve(void)
 	of_scan_flat_dt(dt_scan_for_memory_reserve, NULL);
 }
 
+static void __init apq8084_early_memory(void)
+{
+	of_scan_flat_dt(dt_scan_for_memory_hole, NULL);
+}
+
 /*
  * Used to satisfy dependencies for devices that need to be
  * run early or in a particular order. Most likely your device doesn't fall
@@ -72,6 +79,8 @@ void __init apq8084_add_drivers(void)
 		msm_clock_init(&apq8084_rumi_clock_init_data);
 	else
 		msm_clock_init(&apq8084_clock_init_data);
+	tsens_tm_init_driver();
+	msm_thermal_device_init();
 }
 
 static void __init apq8084_map_io(void)
@@ -100,6 +109,11 @@ void __init apq8084_init(void)
 	apq8084_add_drivers();
 }
 
+void __init apq8084_init_very_early(void)
+{
+	apq8084_early_memory();
+}
+
 static const char *apq8084_dt_match[] __initconst = {
 	"qcom,apq8084",
 	NULL
@@ -110,6 +124,7 @@ DT_MACHINE_START(APQ8084_DT, "Qualcomm APQ 8084 (Flattened Device Tree)")
 	.init_machine		= apq8084_init,
 	.dt_compat		= apq8084_dt_match,
 	.reserve		= apq8084_reserve,
+	.init_very_early	= apq8084_init_very_early,
 	.restart		= msm_restart,
 	.smp			= &msm8974_smp_ops,
 MACHINE_END

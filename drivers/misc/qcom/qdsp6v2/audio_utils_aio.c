@@ -428,9 +428,9 @@ static void audio_aio_unmap_ion_region(struct q6audio_aio *audio)
 	pr_debug("%s[%p]:\n", __func__, audio);
 	list_for_each_safe(ptr, next, &audio->ion_region_queue) {
 		region = list_entry(ptr, struct audio_aio_ion_region, list);
-		if (region != NULL) {
-			pr_debug("%s[%p]: phy_address = 0x%pa\n",
+		pr_debug("%s[%p]: phy_address = 0x%pa\n",
 				__func__, audio, &region->paddr);
+		if (region != NULL) {
 			rc = q6asm_memory_unmap(audio->ac,
 						region->paddr, IN);
 			if (rc < 0)
@@ -1161,7 +1161,8 @@ int audio_aio_open(struct q6audio_aio *audio, struct file *file)
 			goto cleanup;
 		}
 	}
-	audio->client = msm_audio_ion_client_create("Audio_Dec_Client");
+	audio->client = msm_audio_ion_client_create(UINT_MAX,
+						    "Audio_Dec_Client");
 	if (IS_ERR_OR_NULL(audio->client)) {
 		pr_err("Unable to create ION client\n");
 		rc = -ENOMEM;
@@ -1240,7 +1241,7 @@ long audio_aio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	}
 	case AUDIO_ASYNC_READ: {
 		mutex_lock(&audio->read_lock);
-		if (audio->feedback)
+		if ((audio->feedback) && (audio->enabled))
 			rc = audio_aio_buf_add(audio, 0,
 					(void __user *)arg);
 		else

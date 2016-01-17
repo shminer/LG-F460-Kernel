@@ -96,11 +96,12 @@ struct ion_cma_pdata {
  *  msm_ion_client_create - allocate a client using the ion_device specified in
  *				drivers/gpu/ion/msm/msm_ion.c
  *
- * name is the same as ion_client_create, return values
+ * heap_mask and name are the same as ion_client_create, return values
  * are the same as ion_client_create.
  */
 
-struct ion_client *msm_ion_client_create(const char *name);
+struct ion_client *msm_ion_client_create(unsigned int heap_mask,
+					const char *name);
 
 /**
  * ion_handle_get_flags - get the flags for a given handle
@@ -115,6 +116,32 @@ struct ion_client *msm_ion_client_create(const char *name);
 int ion_handle_get_flags(struct ion_client *client, struct ion_handle *handle,
 				unsigned long *flags);
 
+
+/**
+ * ion_map_iommu - map the given handle into an iommu
+ *
+ * @client - client who allocated the handle
+ * @handle - handle to map
+ * @domain_num - domain number to map to
+ * @partition_num - partition number to allocate iova from
+ * @align - alignment for the iova
+ * @iova_length - length of iova to map. If the iova length is
+ *		greater than the handle length, the remaining
+ *		address space will be mapped to a dummy buffer.
+ * @iova - pointer to store the iova address
+ * @buffer_size - pointer to store the size of the buffer
+ * @flags - flags for options to map
+ * @iommu_flags - flags specific to the iommu.
+ *
+ * Maps the handle into the iova space specified via domain number. Iova
+ * will be allocated from the partition specified via partition_num.
+ * Returns 0 on success, negative value on error.
+ */
+int ion_map_iommu(struct ion_client *client, struct ion_handle *handle,
+			int domain_num, int partition_num, unsigned long align,
+			unsigned long iova_length, ion_phys_addr_t *iova,
+			unsigned long *buffer_size,
+			unsigned long flags, unsigned long iommu_flags);
 
 
 /**
@@ -133,6 +160,21 @@ int ion_handle_get_flags(struct ion_client *client, struct ion_handle *handle,
 
 int ion_handle_get_size(struct ion_client *client, struct ion_handle *handle,
 			unsigned long *size);
+
+/**
+ * ion_unmap_iommu - unmap the handle from an iommu
+ *
+ * @client - client who allocated the handle
+ * @handle - handle to unmap
+ * @domain_num - domain to unmap from
+ * @partition_num - partition to unmap from
+ *
+ * Decrement the reference count on the iommu mapping. If the count is
+ * 0, the mapping will be removed from the iommu.
+ */
+void ion_unmap_iommu(struct ion_client *client, struct ion_handle *handle,
+			int domain_num, int partition_num);
+
 /**
  * msm_ion_do_cache_op - do cache operations.
  *
@@ -150,19 +192,54 @@ int ion_handle_get_size(struct ion_client *client, struct ion_handle *handle,
 int msm_ion_do_cache_op(struct ion_client *client, struct ion_handle *handle,
 			void *vaddr, unsigned long len, unsigned int cmd);
 
-int msm_ion_secure_table(struct sg_table *table);
+/**
+ * msm_ion_secure_buffer - secure an individual buffer
+ *
+ * @client - client who has access to the buffer
+ * @handle - buffer to secure
+ * @usage - usage hint to TZ
+ * @flags - flags for the securing
+ */
+int msm_ion_secure_buffer(struct ion_client *client, struct ion_handle *handle,
+				enum cp_mem_usage usage, int flags);
 
-int msm_ion_unsecure_table(struct sg_table *table);
+/**
+ * msm_ion_unsecure_buffer - unsecure an individual buffer
+ *
+ * @client - client who has access to the buffer
+ * @handle - buffer to secure
+ */
+int msm_ion_unsecure_buffer(struct ion_client *client,
+				struct ion_handle *handle);
 #else
-static inline struct ion_client *msm_ion_client_create(const char *name)
+static inline struct ion_client *msm_ion_client_create(unsigned int heap_mask,
+					const char *name)
 {
 	return ERR_PTR(-ENODEV);
+}
+
+static inline int ion_map_iommu(struct ion_client *client,
+			struct ion_handle *handle, int domain_num,
+			int partition_num, unsigned long align,
+			unsigned long iova_length, ion_phys_addr_t *iova,
+			unsigned long *buffer_size,
+			unsigned long flags,
+			unsigned long iommu_flags)
+{
+	return -ENODEV;
 }
 
 static inline int ion_handle_get_size(struct ion_client *client,
 				struct ion_handle *handle, unsigned long *size)
 {
 	return -ENODEV;
+}
+
+static inline void ion_unmap_iommu(struct ion_client *client,
+			struct ion_handle *handle, int domain_num,
+			int partition_num)
+{
+	return;
 }
 
 static inline int msm_ion_do_cache_op(struct ion_client *client,
@@ -172,17 +249,19 @@ static inline int msm_ion_do_cache_op(struct ion_client *client,
 	return -ENODEV;
 }
 
-static inline int msm_ion_secure_table(struct sg_table *table)
+static inline int msm_ion_secure_buffer(struct ion_client *client,
+					struct ion_handle *handle,
+					enum cp_mem_usage usage,
+					int flags)
 {
 	return -ENODEV;
 }
 
-static inline int msm_ion_unsecure_table(struct sg_table *table)
+static inline int msm_ion_unsecure_buffer(struct ion_client *client,
+					struct ion_handle *handle)
 {
 	return -ENODEV;
 }
-
-
 #endif /* CONFIG_ION */
 
 #endif

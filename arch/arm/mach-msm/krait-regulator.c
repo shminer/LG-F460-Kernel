@@ -32,8 +32,8 @@
 #include <linux/cpu.h>
 #include <soc/qcom/spm.h>
 #include <soc/qcom/pm.h>
-#include <soc/qcom/krait-regulator-pmic.h>
 #include <mach/msm_iomap.h>
+#include "krait-regulator-pmic.h"
 
 /*
  *                   supply
@@ -420,8 +420,7 @@ static int get_coeff_total(struct krait_power_vreg *from)
 	return coeff_total;
 }
 
-static int set_pmic_gang_phases(struct pmic_gang_vreg *pvreg,
-		struct krait_power_vreg *from, int phase_count)
+static int set_pmic_gang_phases(struct pmic_gang_vreg *pvreg, int phase_count)
 {
 	pr_debug("programming phase_count = %d\n", phase_count);
 	if (pvreg->use_phase_switching)
@@ -429,8 +428,7 @@ static int set_pmic_gang_phases(struct pmic_gang_vreg *pvreg,
 		 * note the PMIC sets the phase count to one more than
 		 * the value in the register - hence subtract 1 from it
 		 */
-		return msm_spm_apcs_set_phase(from->cpu_num,
-						phase_count - 1);
+		return msm_spm_apcs_set_phase(phase_count - 1);
 	else
 		return 0;
 }
@@ -482,7 +480,7 @@ static bool enable_phase_management(struct pmic_gang_vreg *pvreg)
 #define TWO_PHASE_COEFF		2000000
 
 #define PWM_SETTLING_TIME_US		50
-#define PHASE_SETTLING_TIME_US		100
+#define PHASE_SETTLING_TIME_US		50
 static unsigned int pmic_gang_set_phases(struct krait_power_vreg *from,
 				int coeff_total)
 {
@@ -508,8 +506,7 @@ static unsigned int pmic_gang_set_phases(struct krait_power_vreg *from,
 				&& n_online == 1
 				&& krait_pmic_is_ready()) {
 			if (!pvreg->pfm_mode) {
-				rc = msm_spm_enable_fts_lpm(from->cpu_num,
-							PMIC_FTS_MODE_PFM);
+				rc = msm_spm_enable_fts_lpm(PMIC_FTS_MODE_PFM);
 				if (rc) {
 					pr_err("%s PFM en failed load_t %d rc = %d\n",
 						from->name, load_total, rc);
@@ -523,8 +520,7 @@ static unsigned int pmic_gang_set_phases(struct krait_power_vreg *from,
 
 		/* coeff is high switch to PWM mode before changing phases */
 		if (pvreg->pfm_mode) {
-			rc = msm_spm_enable_fts_lpm(from->cpu_num,
-						PMIC_FTS_MODE_PWM);
+			rc = msm_spm_enable_fts_lpm(PMIC_FTS_MODE_PWM);
 			if (rc) {
 				pr_err("%s PFM exit failed load %d rc = %d\n",
 					from->name, coeff_total, rc);
@@ -552,27 +548,25 @@ static unsigned int pmic_gang_set_phases(struct krait_power_vreg *from,
 		phase_count = DIV_ROUND_UP(n_online, pvreg->cores_per_phase);
 
 	if (phase_count != pvreg->pmic_phase_count) {
-		if (pvreg->force_auto_mode && phase_count > 1) {
-			/* Disable Auto Mode prior to setting phase count > 1 */
-			rc = msm_spm_enable_fts_lpm(from->cpu_num,
-						PMIC_FTS_MODE_PWM);
-			if (rc) {
-				dev_err(&from->rdev->dev,
-					"failed to force PWM, rc=%d\n", rc);
-				return rc;
+		if (pvreg->force_auto_mode) {
+			if (phase_count == 1) {
+				rc = msm_spm_enable_fts_lpm(PMIC_FTS_MODE_AUTO);
+				if (rc) {
+					dev_err(&from->rdev->dev, "failed to force AUTO, rc=%d\n", rc);
+					return rc;
+				}
+			} else {
+				rc = msm_spm_enable_fts_lpm(PMIC_FTS_MODE_PWM);
+				if (rc) {
+					dev_err(&from->rdev->dev, "failed to force PWM, rc=%d\n", rc);
+					return rc;
+				}
 			}
-			/* complete the writes before switching phases */
+			/* complete the writes before the delay */
 			mb();
 		}
 
-		if (phase_count >= 2) {
-			rc = krait_pmic_pre_multiphase_enable();
-			if (rc < 0) {
-				pr_err("%s failed to run pre multiphase steps %d rc = %d\n",
-				from->name, phase_count, rc);
-			}
-		}
-		rc = set_pmic_gang_phases(pvreg, from, phase_count);
+		rc = set_pmic_gang_phases(pvreg, phase_count);
 		if (rc < 0) {
 			pr_err("%s failed set phase %d rc = %d\n",
 				from->name, phase_count, rc);
@@ -589,18 +583,6 @@ static unsigned int pmic_gang_set_phases(struct krait_power_vreg *from,
 		if (phase_count > pvreg->pmic_phase_count)
 			udelay(PHASE_SETTLING_TIME_US);
 
-		if (pvreg->force_auto_mode && phase_count == 1) {
-			/* Enable Auto Mode after setting phase count = 1 */
-			rc = msm_spm_enable_fts_lpm(from->cpu_num,
-						PMIC_FTS_MODE_AUTO);
-			if (rc) {
-				dev_err(&from->rdev->dev,
-					"failed to force AUTO, rc=%d\n", rc);
-				return rc;
-			}
-			/* complete the writes before any other access */
-			mb();
-		}
 		pvreg->pmic_phase_count = phase_count;
 	}
 
@@ -772,10 +754,8 @@ static void __switch_to_using_ldo(void *info)
 
 static int switch_to_using_ldo(struct krait_power_vreg *kvreg)
 {
-	int uV = kvreg->uV - kvreg->ldo_delta_uV;
-	int ldo_uV = DIV_ROUND_UP(uV, KRAIT_LDO_STEP) * KRAIT_LDO_STEP;
-
-	if (kvreg->mode == LDO_MODE && get_krait_ldo_uv(kvreg) == ldo_uV)
+	if (kvreg->mode == LDO_MODE
+		&& get_krait_ldo_uv(kvreg) == kvreg->uV - kvreg->ldo_delta_uV)
 		return 0;
 
 	return smp_call_function_single(kvreg->cpu_num,

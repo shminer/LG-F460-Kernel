@@ -1729,8 +1729,7 @@ kgsl_iommu_map(struct kgsl_pagetable *pt,
 	 *  being read) -> causing TLB sync stuck issues. As a result SW must
 	 *  implement the invalidate+map.
 	 */
-
-	if (ADRENO_FEATURE(adreno_dev, IOMMU_FLUSH_TLB_ON_MAP))
+	if (adreno_dev->features & IOMMU_FLUSH_TLB_ON_MAP)
 		kgsl_iommu_flush_tlb_pt_current(pt);
 
 	return ret;
@@ -1872,7 +1871,7 @@ static int kgsl_iommu_default_setstate(struct kgsl_mmu *mmu,
 
 	/* For v0 SMMU GPU needs to be idle for tlb invalidate as well */
 	if (msm_soc_version_supports_iommu_v0()) {
-		ret = adreno_spin_idle(mmu->device);
+		ret = kgsl_idle(mmu->device);
 		if (ret)
 			return ret;
 	}
@@ -1882,7 +1881,7 @@ static int kgsl_iommu_default_setstate(struct kgsl_mmu *mmu,
 
 	if (flags & KGSL_MMUFLAGS_PTUPDATE) {
 		if (!msm_soc_version_supports_iommu_v0()) {
-			ret = adreno_spin_idle(mmu->device);
+			ret = kgsl_idle(mmu->device);
 			if (ret)
 				goto unlock;
 		}

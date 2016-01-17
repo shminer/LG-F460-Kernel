@@ -142,7 +142,6 @@ struct hd_struct {
 #define GENHD_IF_USB	1
 #endif
 
-
 enum {
 	DISK_EVENT_MEDIA_CHANGE			= 1 << 0, /* media changed */
 	DISK_EVENT_EJECT_REQUEST		= 1 << 1, /* eject requested */
@@ -657,7 +656,7 @@ static inline void hd_ref_init(struct hd_struct *part)
 static inline void hd_struct_get(struct hd_struct *part)
 {
 	atomic_inc(&part->ref);
-	smp_mb__after_atomic();
+	smp_mb__after_atomic_inc();
 }
 
 static inline int hd_struct_try_get(struct hd_struct *part)

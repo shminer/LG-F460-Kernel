@@ -114,8 +114,6 @@ struct msg_desc err_resp_desc = {
 };
 
 static void svc_resume_tx_worker(struct work_struct *work);
-static void clean_txn_info(struct qmi_handle *handle);
-
 
 /**
  * add_req_handle() - Create and Add a request handle to the connection
@@ -333,18 +331,7 @@ static void qmi_event_notify(unsigned event, void *oob_data,
 		return;
 	}
 	notify_work->event = event;
-	if (oob_data) {
-		notify_work->oob_data = kmalloc(oob_data_len, GFP_KERNEL);
-		if (!notify_work->oob_data) {
-			pr_err("%s: Couldn't allocate oob_data @ %d to %p\n",
-				__func__, event, priv);
-			kfree(notify_work);
-			return;
-		}
-		memcpy(notify_work->oob_data, oob_data, oob_data_len);
-	} else {
-		notify_work->oob_data = NULL;
-	}
+	notify_work->oob_data = oob_data;
 	notify_work->oob_data_len = oob_data_len;
 	notify_work->priv = priv;
 	INIT_WORK(&notify_work->work, qmi_notify_event_worker);
@@ -359,7 +346,6 @@ static void qmi_event_notify(unsigned event, void *oob_data,
 		}
 	}
 	mutex_unlock(&handle_hash_tbl_lock);
-	kfree(notify_work->oob_data);
 	kfree(notify_work);
 }
 
@@ -376,7 +362,6 @@ static void qmi_notify_event_worker(struct work_struct *work)
 	mutex_lock(&handle->handle_lock);
 	if (handle->handle_reset) {
 		mutex_unlock(&handle->handle_lock);
-		kfree(notify_work->oob_data);
 		kfree(notify_work);
 		return;
 	}
@@ -394,7 +379,7 @@ static void qmi_notify_event_worker(struct work_struct *work)
 					   &handle->resume_tx_work,
 					   msecs_to_jiffies(0));
 		} else if (handle->handle_type == QMI_SERVICE_HANDLE) {
-			struct msm_ipc_addr rtx_addr = {0};
+			struct msm_ipc_addr rtx_addr;
 			struct qmi_svc_clnt_conn *conn_h;
 			union rr_control_msg *msg;
 
@@ -421,7 +406,6 @@ static void qmi_notify_event_worker(struct work_struct *work)
 		break;
 	}
 	mutex_unlock(&handle->handle_lock);
-	kfree(notify_work->oob_data);
 	kfree(notify_work);
 }
 
@@ -547,10 +531,6 @@ static int handle_rmv_server(struct qmi_handle *handle,
 	svc_addr = (struct msm_ipc_addr *)(handle->dest_info);
 	if (svc_addr->addr.port_addr.node_id == ctl_msg->srv.node_id &&
 	    svc_addr->addr.port_addr.port_id == ctl_msg->srv.port_id) {
-		/* Wakeup any threads waiting for the response */
-		handle->handle_reset = 1;
-		clean_txn_info(handle);
-
 		spin_lock_irqsave(&handle->notify_lock, flags);
 		handle->notify(handle, QMI_SERVER_EXIT, handle->notify_priv);
 		spin_unlock_irqrestore(&handle->notify_lock, flags);
@@ -1757,7 +1737,7 @@ static struct svc_event_nb *find_and_add_svc_event_nb(uint32_t service_id,
 	temp->svc_driver.probe = qmi_svc_event_probe;
 	temp->svc_driver.remove = qmi_svc_event_remove;
 	scnprintf(temp->pdriver_name, sizeof(temp->pdriver_name),
-		  "SVC%08x:%08x", service_id, instance_id);
+		  "QMI%08x:%08x", service_id, instance_id);
 	temp->svc_driver.driver.name = temp->pdriver_name;
 	RAW_INIT_NOTIFIER_HEAD(&temp->svc_event_rcvr_list);
 

@@ -203,6 +203,8 @@ static void msix_mask_irq(struct msi_desc *desc, u32 flag)
 	desc->masked = __msix_mask_irq(desc, flag);
 }
 
+#ifdef CONFIG_GENERIC_HARDIRQS
+
 static void msi_set_mask_bit(struct irq_data *data, u32 flag)
 {
 	struct msi_desc *desc = irq_data_get_msi(data);
@@ -225,6 +227,8 @@ void unmask_msi_irq(struct irq_data *data)
 {
 	msi_set_mask_bit(data, 0);
 }
+
+#endif /* CONFIG_GENERIC_HARDIRQS */
 
 void __read_msi_msg(struct msi_desc *entry, struct msi_msg *msg)
 {
@@ -333,8 +337,10 @@ static void free_msi_irqs(struct pci_dev *dev)
 		if (!entry->irq)
 			continue;
 		nvec = 1 << entry->msi_attrib.multiple;
+#ifdef CONFIG_GENERIC_HARDIRQS
 		for (i = 0; i < nvec; i++)
 			BUG_ON(irq_has_action(entry->irq + i));
+#endif
 	}
 
 	arch_teardown_msi_irqs(dev);
@@ -524,20 +530,6 @@ out_unroll:
 	return ret;
 }
 
-static int msi_verify_entries(struct pci_dev *dev)
-{
-	struct msi_desc *entry;
-
-	list_for_each_entry(entry, &dev->msi_list, list) {
-		if (!dev->no_64bit_msi || !entry->msg.address_hi)
-			continue;
-		dev_err(&dev->dev, "Device has broken 64-bit MSI but arch"
-			" tried to assign one above 4G\n");
-		return -EIO;
-	}
-	return 0;
-}
-
 /**
  * msi_capability_init - configure device's MSI capability structure
  * @dev: pointer to the pci_dev data structure of MSI device function
@@ -585,13 +577,6 @@ static int msi_capability_init(struct pci_dev *dev, int nvec)
 
 	/* Configure MSI capability structure */
 	ret = arch_setup_msi_irqs(dev, nvec, PCI_CAP_ID_MSI);
-	if (ret) {
-		msi_mask_irq(entry, mask, ~mask);
-		free_msi_irqs(dev);
-		return ret;
-	}
-
-	ret = msi_verify_entries(dev);
 	if (ret) {
 		msi_mask_irq(entry, mask, ~mask);
 		free_msi_irqs(dev);
@@ -710,11 +695,6 @@ static int msix_capability_init(struct pci_dev *dev,
 		return ret;
 
 	ret = arch_setup_msi_irqs(dev, nvec, PCI_CAP_ID_MSIX);
-	if (ret)
-		goto error;
-
-	/* Check if all MSI entries honor device restrictions */
-	ret = msi_verify_entries(dev);
 	if (ret)
 		goto error;
 

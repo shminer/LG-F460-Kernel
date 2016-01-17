@@ -27,9 +27,6 @@ enum {
 	 PEER_CRASH,
 };
 
-/* wait one second more than MDM2AP status check */
-#define MDM_BOOT_TIMEOUT (121*HZ)
-
 struct mdm_drv {
 	unsigned mode;
 	struct esoc_eng cmd_eng;
@@ -50,14 +47,15 @@ static int esoc_msm_restart_handler(struct notifier_block *nb,
 					esoc_restart);
 	struct esoc_clink *esoc_clink = mdm_drv->esoc_clink;
 	const struct esoc_clink_ops const *clink_ops = esoc_clink->clink_ops;
+	if (action == SYS_RESTART) {
 		dev_dbg(&esoc_clink->dev, "Notifying esoc of cold reboot\n");
 		clink_ops->notify(ESOC_PRIMARY_REBOOT, esoc_clink);
+	}
         /*WA for MDM on issue after device power off which result in current leakage*/
-		if(action == SYS_POWER_OFF){
-        	dev_err(&esoc_clink->dev, "Notifying esoc of poweroff\n");
+        else if(action == SYS_POWER_OFF){ 
+        	dev_err(&esoc_clink->dev, "Notifying esoc of poweroff\n"); 
         	clink_ops->cmd_exe(ESOC_PWR_OFF, esoc_clink);
         }
-
 	return NOTIFY_OK;
 }
 static void mdm_handle_clink_evt(enum esoc_evt evt,
@@ -149,7 +147,6 @@ static int mdm_subsys_shutdown(const struct subsys_desc *crashed_subsys,
 static int mdm_subsys_powerup(const struct subsys_desc *crashed_subsys)
 {
 	int ret;
-	int t;
 	struct esoc_clink *esoc_clink =
 				container_of(crashed_subsys, struct esoc_clink,
 								subsys);
@@ -158,12 +155,7 @@ static int mdm_subsys_powerup(const struct subsys_desc *crashed_subsys)
 
 	if (!esoc_req_eng_enabled(esoc_clink)) {
 		dev_dbg(&esoc_clink->dev, "Wait for req eng registration\n");
-		t = wait_for_completion_timeout(&mdm_drv->req_eng_wait,
-		                                MDM_BOOT_TIMEOUT);
-		if (!t) {
-			dev_err(&esoc_clink->dev, "Req eng timeout\n");
-			return -EIO;
-		}
+		wait_for_completion(&mdm_drv->req_eng_wait);
 	}
 	if (mdm_drv->mode == PWR_OFF) {
 		ret = clink_ops->cmd_exe(ESOC_PWR_ON, esoc_clink);
@@ -184,8 +176,8 @@ static int mdm_subsys_powerup(const struct subsys_desc *crashed_subsys)
 			return ret;
 		}
 	}
-	t = wait_for_completion_timeout(&mdm_drv->boot_done, MDM_BOOT_TIMEOUT);
-	if (!t || mdm_drv->boot_fail) {
+	wait_for_completion(&mdm_drv->boot_done);
+	if (mdm_drv->boot_fail) {
 		dev_err(&esoc_clink->dev, "booting failed\n");
 		return -EIO;
 	}

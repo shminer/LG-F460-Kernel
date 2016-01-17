@@ -270,11 +270,6 @@ struct mdss_dsi_ctrl_pdata {
 	int (*set_col_page_addr) (struct mdss_panel_data *pdata);
 	int (*check_status) (struct mdss_dsi_ctrl_pdata *pdata);
 	int (*cmdlist_commit)(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp);
-	/* sharpening control */
-	int (*set_sharpening)(struct mdss_dsi_ctrl_pdata *ctrl, int level,
-		void *resuming);
-	int (*queue_sharpening)(struct mdss_dsi_ctrl_pdata *ctrl, int level);
-	/* sharpening control */
 	struct mdss_panel_data panel_data;
 	unsigned char *ctrl_base;
 	struct dss_io_data ctrl_io;
@@ -324,9 +319,7 @@ struct mdss_dsi_ctrl_pdata {
 
 	struct dsi_panel_cmds on_cmds;
 	struct dsi_panel_cmds off_cmds;
-	
-	struct dsi_panel_cmds sharpening_level[41];
-	
+
 	struct dcs_cmd_list cmdlist;
 	struct completion dma_comp;
 	struct completion mdp_comp;

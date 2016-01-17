@@ -961,18 +961,14 @@ static void wcd_cpe_svc_event_cb(const struct cpe_svc_notification *param)
 	}
 
 	codec = param->private_data;
-	if (!codec) {
-		pr_err("%s: Invalid handle to codec\n",
+
+	if (!codec || !wcd_cpe_get_core_handle(codec)) {
+		pr_err("%s: Invalid handle to codec/core\n",
 			__func__);
 		return;
 	}
 
 	core = wcd_cpe_get_core_handle(codec);
-	if (!core) {
-		pr_err("%s: Invalid handle to core\n",
-			__func__);
-		return;
-	}
 
 	dev_dbg(core->dev,
 		"%s: event = 0x%x\n", __func__, param->event);
@@ -2524,7 +2520,7 @@ static int wcd_cpe_dealloc_lsm_session(void *core_handle,
 	if (!session) {
 		dev_err(core->dev,
 			"%s: Invalid lsm session\n", __func__);
-		return -EINVAL;
+		return 0;
 	}
 
 	dev_dbg(core->dev, "%s: session %d being deallocated\n",
@@ -2576,8 +2572,8 @@ static int slim_master_read_enable(void *core_handle,
 		goto exit;
 	}
 
-	if (core->cpe_cdc_cb->lab_cdc_ch_ctl)
-		core->cpe_cdc_cb->lab_cdc_ch_ctl(codec, 1);
+	if (core->cpe_cdc_cb->slimtx_lab_en)
+		core->cpe_cdc_cb->slimtx_lab_en(codec, 1);
 	else {
 		pr_err("%s: Failed to enable codec slave port\n",
 			__func__);
@@ -2613,7 +2609,7 @@ static int slim_master_read_enable(void *core_handle,
 	return 0;
 
 fail_slim_open:
-	core->cpe_cdc_cb->lab_cdc_ch_ctl(codec, 0);
+	core->cpe_cdc_cb->slimtx_lab_en(codec, 0);
 fail_mclk:
 	core->cpe_cdc_cb->cdc_ext_clk(codec, false, false);
 exit:
@@ -2668,8 +2664,8 @@ static int wcd_cpe_lsm_stop_lab(void *core_handle,
 	lab_s = &session->lab;
 	WCD_CPE_GRAB_LOCK(&session->lsm_lock, "lsm");
 	/* This seqeunce should be followed strictly for closing sequence */
-	if (core->cpe_cdc_cb->lab_cdc_ch_ctl)
-		core->cpe_cdc_cb->lab_cdc_ch_ctl(codec, 0);
+	if (core->cpe_cdc_cb->slimtx_lab_en)
+		core->cpe_cdc_cb->slimtx_lab_en(codec, 0);
 	else
 		pr_err("%s: Failed to disable codec slave port\n",
 			__func__);

@@ -473,10 +473,10 @@ void *a3xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 	int *remain, int hang)
 {
 	struct kgsl_device *device = &adreno_dev->dev;
-	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
 	struct kgsl_snapshot_registers_list list;
 	struct kgsl_snapshot_registers regs[5];
-	struct adreno_snapshot_data *snap_data = gpudev->snapshot_data;
+	struct adreno_snapshot_data *snap_data =
+				adreno_dev->gpudev->snapshot_data;
 
 	list.registers = regs;
 	list.count = 0;
@@ -496,24 +496,15 @@ void *a3xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 		KGSL_SNAPSHOT_SECTION_REGS, snapshot, remain,
 		kgsl_snapshot_dump_regs, &list);
 
-	/* Skip indexed register dump for these chipsets 8974, 8x26, 8x10 */
-	if (adreno_is_a330(adreno_dev) ||
-		adreno_is_a330v2(adreno_dev) ||
-		adreno_is_a305b(adreno_dev) ||
-		adreno_is_a305c(adreno_dev)	) {
-		KGSL_DRV_ERR(device,
-		"Skipping indexed register dump\n");
-	} else {
-		snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
+	snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
 			remain, A3XX_CP_STATE_DEBUG_INDEX,
 			A3XX_CP_STATE_DEBUG_DATA, 0x0,
 			snap_data->sect_sizes->cp_state_deb);
 
-		/* CP_ME indexed registers */
-		snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
+	/* CP_ME indexed registers */
+	snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
 			remain, A3XX_CP_ME_CNTL, A3XX_CP_ME_STATUS,
 			64, 44);
-	}
 
 	/* VPC memory */
 	snapshot = kgsl_snapshot_add_section(device,
@@ -526,20 +517,11 @@ void *a3xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 			KGSL_SNAPSHOT_SECTION_DEBUG, snapshot, remain,
 			a3xx_snapshot_cp_meq, &snap_data->sect_sizes->cp_meq);
 
-	/* Skip shader memory dump for these chipsets: 8974, 8x26, 8x10 */
-	if (adreno_is_a330(adreno_dev) ||
-		adreno_is_a330v2(adreno_dev) ||
-		adreno_is_a305b(adreno_dev) ||
-		adreno_is_a305c(adreno_dev)	) {
-		KGSL_DRV_ERR(device,
-		"Skipping shader memory dump\n");
-	} else {
-		/* Shader working/shadow memory */
-		snapshot = kgsl_snapshot_add_section(device,
+	/* Shader working/shadow memory */
+	snapshot = kgsl_snapshot_add_section(device,
 			KGSL_SNAPSHOT_SECTION_DEBUG, snapshot, remain,
 			a3xx_snapshot_shader_memory,
 			&snap_data->sect_sizes->shader_mem);
-	}
 
 
 	/* CP PFP and PM4 */

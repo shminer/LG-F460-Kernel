@@ -546,7 +546,7 @@ static void wcd9xxx_chargepump_request(struct snd_soc_codec *codec, bool on)
 
 void wcd9xxx_enable_high_perf_mode(struct snd_soc_codec *codec,
 				struct wcd9xxx_clsh_cdc_data *clsh_d,
-				u8 uhqa_mode, u8 req_state, bool req_type)
+				u8 req_state, bool req_type)
 {
 	dev_dbg(codec->dev, "%s: users fclk8 %d, fclk5 %d", __func__,
 			clsh_d->ncp_users[NCP_FCLK_LEVEL_8],
@@ -554,16 +554,10 @@ void wcd9xxx_enable_high_perf_mode(struct snd_soc_codec *codec,
 
 	if (req_type == WCD9XXX_CLSAB_REQ_ENABLE) {
 		clsh_d->ncp_users[NCP_FCLK_LEVEL_8]++;
-		snd_soc_write(codec, WCD9XXX_A_RX_HPH_BIAS_PA,
-					WCD9XXX_A_RX_HPH_BIAS_PA__POR);
-		snd_soc_write(codec, WCD9XXX_A_RX_HPH_L_PA_CTL, 0x48);
-		snd_soc_write(codec, WCD9XXX_A_RX_HPH_R_PA_CTL, 0x48);
-		if (uhqa_mode)
-			snd_soc_update_bits(codec, WCD9XXX_A_RX_HPH_CHOP_CTL,
-						0x20, 0x00);
+		snd_soc_update_bits(codec, WCD9XXX_A_RX_HPH_CHOP_CTL,
+					0x20, 0x00);
 		wcd9xxx_chargepump_request(codec, true);
 		wcd9xxx_enable_anc_delay(codec, true);
-		wcd9xxx_enable_buck(codec, clsh_d, false);
 		if (clsh_d->ncp_users[NCP_FCLK_LEVEL_8] > 0)
 			snd_soc_update_bits(codec, WCD9XXX_A_NCP_STATIC,
 						0x0F, 0x08);
@@ -575,12 +569,6 @@ void wcd9xxx_enable_high_perf_mode(struct snd_soc_codec *codec,
 	} else {
 		snd_soc_update_bits(codec, WCD9XXX_A_RX_HPH_CHOP_CTL,
 					0x20, 0x20);
-		snd_soc_write(codec, WCD9XXX_A_RX_HPH_L_PA_CTL,
-					WCD9XXX_A_RX_HPH_L_PA_CTL__POR);
-		snd_soc_write(codec, WCD9XXX_A_RX_HPH_R_PA_CTL,
-					WCD9XXX_A_RX_HPH_R_PA_CTL__POR);
-		snd_soc_write(codec, WCD9XXX_A_RX_HPH_BIAS_PA, 0x7A);
-		wcd9xxx_enable_buck(codec, clsh_d, true);
 		wcd9xxx_chargepump_request(codec, false);
 		wcd9xxx_enable_anc_delay(codec, false);
 		clsh_d->ncp_users[NCP_FCLK_LEVEL_8]--;
@@ -604,13 +592,7 @@ static int get_impedance_index(u32 imped)
 				__func__);
 		goto ret;
 	}
-	if (imped >= imped_index[ARRAY_SIZE(imped_index) - 1].imped_val) {
-		pr_debug("%s, detected impedance is greater than 32164 Ohm\n",
-				__func__);
-		i = ARRAY_SIZE(imped_index) - 1;
-		goto ret;
-	}
-	for (i = 0; i < ARRAY_SIZE(imped_index) - 1; i++) {
+	for (i = 0; i < ARRAY_SIZE(imped_index); i++) {
 		if (imped >= imped_index[i].imped_val &&
 			imped < imped_index[i + 1].imped_val)
 			break;
@@ -627,7 +609,7 @@ void wcd9xxx_clsh_imped_config(struct snd_soc_codec *codec,
 	int i  = 0;
 	int index = 0;
 	index = get_impedance_index(imped);
-	if (index >= ARRAY_SIZE(imped_index)) {
+	if (index > ARRAY_SIZE(imped_index)) {
 		pr_err("%s, invalid imped = %d\n", __func__, imped);
 		return;
 	}
@@ -942,11 +924,6 @@ static void wcd9xxx_clsh_state_hph_ear(struct snd_soc_codec *codec,
 		 * The below check condition is required to make sure
 		 * functions inside if condition will execute only once.
 		 */
-		if (req_state == WCD9XXX_CLSH_STATE_EAR)
-			wcd9xxx_cfg_clsh_param_ear(codec);
-		if (clsh_d->state == WCD9XXX_CLSH_STATE_EAR)
-			wcd9xxx_cfg_clsh_param_hph(codec);
-
 		if ((clsh_d->state == WCD9XXX_CLSH_STATE_EAR) ||
 			(req_state == WCD9XXX_CLSH_STATE_EAR)) {
 			wcd9xxx_dynamic_bypass_buck_ctrl(codec, false);
@@ -1008,12 +985,10 @@ static void wcd9xxx_clsh_state_hph_lo(struct snd_soc_codec *codec,
 	dev_dbg(codec->dev, "%s: enter %s\n", __func__,
 			is_enable ? "enable" : "disable");
 	if (is_enable) {
-		if (clsh_d->state == WCD9XXX_CLSH_STATE_LO)
-			wcd9xxx_cfg_clsh_param_hph(codec);
-
 		if ((clsh_d->state == WCD9XXX_CLSH_STATE_LO) ||
 			(req_state == WCD9XXX_CLSH_STATE_LO)) {
 			wcd9xxx_dynamic_bypass_buck_ctrl_lo(codec, false);
+			wcd9xxx_enable_buck(codec, clsh_d, true);
 			wcd9xxx_ncp_bypass_enable(codec, true);
 			if (req_state & WCD9XXX_CLSH_STATE_HPH_ST) {
 				wcd9xxx_set_fclk_get_ncp(codec, clsh_d,
@@ -1104,7 +1079,6 @@ static void wcd9xxx_clsh_state_ear_lo(struct snd_soc_codec *codec,
 		wcd9xxx_enable_buck(codec, clsh_d, true);
 		wcd9xxx_ncp_bypass_enable(codec, true);
 		if (req_state & WCD9XXX_CLSH_STATE_EAR) {
-			wcd9xxx_cfg_clsh_param_ear(codec);
 			wcd9xxx_set_fclk_get_ncp(codec, clsh_d,
 						NCP_FCLK_LEVEL_8);
 			wcd9xxx_set_fclk_put_ncp(codec, clsh_d,
@@ -1117,12 +1091,14 @@ static void wcd9xxx_clsh_state_ear_lo(struct snd_soc_codec *codec,
 		}
 	} else {
 		wcd9xxx_ncp_bypass_enable(codec, false);
-			if ((clsh_d->state & (~req_state)) == WCD9XXX_CLSH_STATE_LO) {
+
+		if ((clsh_d->state & (~req_state)) == WCD9XXX_CLSH_STATE_LO) {
 			wcd9xxx_set_fclk_get_ncp(codec, clsh_d,
 						NCP_FCLK_LEVEL_5);
 			wcd9xxx_set_fclk_put_ncp(codec, clsh_d,
 						NCP_FCLK_LEVEL_8);
 		}
+
 		if (req_state & WCD9XXX_CLSH_STATE_LO) {
 			snd_soc_update_bits(codec, WCD9XXX_A_NCP_STATIC,
 						0x20, 0x00);
@@ -1155,9 +1131,6 @@ static void wcd9xxx_clsh_state_hph_ear_lo(struct snd_soc_codec *codec,
 	dev_dbg(codec->dev, "%s: enter %s\n", __func__,
 			is_enable ? "enable" : "disable");
 
-	if (clsh_d->state == WCD9XXX_CLSH_STATE_EAR_LO)
-		wcd9xxx_cfg_clsh_param_hph(codec);
-
 	if (req_state & WCD9XXX_CLSH_STATE_HPHL)
 		wcd9xxx_clsh_comp_req(codec, clsh_d, CLSH_COMPUTE_HPH_L,
 					is_enable);
@@ -1166,11 +1139,9 @@ static void wcd9xxx_clsh_state_hph_ear_lo(struct snd_soc_codec *codec,
 		wcd9xxx_clsh_comp_req(codec, clsh_d, CLSH_COMPUTE_HPH_R,
 					is_enable);
 
-	if (req_state & WCD9XXX_CLSH_STATE_EAR) {
-		wcd9xxx_cfg_clsh_param_ear(codec);
+	if (req_state & WCD9XXX_CLSH_STATE_EAR)
 		wcd9xxx_clsh_comp_req(codec, clsh_d, CLSH_COMPUTE_EAR,
 					is_enable);
-	}
 }
 
 static void wcd9xxx_clsh_state_ear(struct snd_soc_codec *codec,

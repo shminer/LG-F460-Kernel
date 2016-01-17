@@ -20,7 +20,6 @@
 #include <linux/of_address.h>
 #include <linux/io.h>
 #include <linux/slab.h>
-#include <linux/sched_clock.h>
 
 #include <asm/arch_timer.h>
 #include <asm/virt.h>
@@ -81,10 +80,10 @@ static inline void arch_timer_reg_write(int access, int reg, u32 val,
 		struct arch_timer *timer = to_arch_timer(clk);
 		switch (reg) {
 		case ARCH_TIMER_REG_CTRL:
-			writel_relaxed_no_log(val, timer->base + CNTP_CTL);
+			writel_relaxed(val, timer->base + CNTP_CTL);
 			break;
 		case ARCH_TIMER_REG_TVAL:
-			writel_relaxed_no_log(val, timer->base + CNTP_TVAL);
+			writel_relaxed(val, timer->base + CNTP_TVAL);
 			break;
 		default:
 			BUILD_BUG();
@@ -93,10 +92,10 @@ static inline void arch_timer_reg_write(int access, int reg, u32 val,
 		struct arch_timer *timer = to_arch_timer(clk);
 		switch (reg) {
 		case ARCH_TIMER_REG_CTRL:
-			writel_relaxed_no_log(val, timer->base + CNTV_CTL);
+			writel_relaxed(val, timer->base + CNTV_CTL);
 			break;
 		case ARCH_TIMER_REG_TVAL:
-			writel_relaxed_no_log(val, timer->base + CNTV_TVAL);
+			writel_relaxed(val, timer->base + CNTV_TVAL);
 			break;
 		default:
 			BUILD_BUG();
@@ -115,10 +114,10 @@ static inline u32 arch_timer_reg_read(int access, int reg,
 		struct arch_timer *timer = to_arch_timer(clk);
 		switch (reg) {
 		case ARCH_TIMER_REG_CTRL:
-			val = readl_relaxed_no_log(timer->base + CNTP_CTL);
+			val = readl_relaxed(timer->base + CNTP_CTL);
 			break;
 		case ARCH_TIMER_REG_TVAL:
-			val = readl_relaxed_no_log(timer->base + CNTP_TVAL);
+			val = readl_relaxed(timer->base + CNTP_TVAL);
 			break;
 		default:
 			BUILD_BUG();
@@ -127,10 +126,10 @@ static inline u32 arch_timer_reg_read(int access, int reg,
 		struct arch_timer *timer = to_arch_timer(clk);
 		switch (reg) {
 		case ARCH_TIMER_REG_CTRL:
-			val = readl_relaxed_no_log(timer->base + CNTV_CTL);
+			val = readl_relaxed(timer->base + CNTV_CTL);
 			break;
 		case ARCH_TIMER_REG_TVAL:
-			val = readl_relaxed_no_log(timer->base + CNTV_TVAL);
+			val = readl_relaxed(timer->base + CNTV_TVAL);
 			break;
 		default:
 			BUILD_BUG();
@@ -352,8 +351,7 @@ arch_timer_detect_rate(void __iomem *cntbase, struct device_node *np)
 	/* Try to determine the frequency from the device tree or CNTFRQ */
 	if (of_property_read_u32(np, "clock-frequency", &arch_timer_rate)) {
 		if (cntbase)
-			arch_timer_rate = readl_relaxed_no_log(cntbase
-								+ CNTFRQ);
+			arch_timer_rate = readl_relaxed(cntbase + CNTFRQ);
 		else
 			arch_timer_rate = arch_timer_get_cntfrq();
 	}
@@ -390,9 +388,9 @@ static u64 arch_counter_get_cntpct_mem(void)
 	u32 pct_lo, pct_hi, tmp_hi;
 
 	do {
-		pct_hi = readl_relaxed_no_log(arch_counter_base + CNTPCT_HI);
-		pct_lo = readl_relaxed_no_log(arch_counter_base + CNTPCT_LO);
-		tmp_hi = readl_relaxed_no_log(arch_counter_base + CNTPCT_HI);
+		pct_hi = readl_relaxed(arch_counter_base + CNTPCT_HI);
+		pct_lo = readl_relaxed(arch_counter_base + CNTPCT_LO);
+		tmp_hi = readl_relaxed(arch_counter_base + CNTPCT_HI);
 	} while (pct_hi != tmp_hi);
 
 	return ((u64) pct_hi << 32) | pct_lo;
@@ -403,9 +401,9 @@ static notrace u64 arch_counter_get_cntvct_mem(void)
 	u32 vct_lo, vct_hi, tmp_hi;
 
 	do {
-		vct_hi = readl_relaxed_no_log(arch_counter_base + CNTVCT_HI);
-		vct_lo = readl_relaxed_no_log(arch_counter_base + CNTVCT_LO);
-		tmp_hi = readl_relaxed_no_log(arch_counter_base + CNTVCT_HI);
+		vct_hi = readl_relaxed(arch_counter_base + CNTVCT_HI);
+		vct_lo = readl_relaxed(arch_counter_base + CNTVCT_LO);
+		tmp_hi = readl_relaxed(arch_counter_base + CNTVCT_HI);
 	} while (vct_hi != tmp_hi);
 
 	return ((u64) vct_hi << 32) | vct_lo;
@@ -442,7 +440,6 @@ u64 arch_counter_get_cntvct(void)
 {
 	return arch_timer_read_counter();
 }
-EXPORT_SYMBOL(arch_counter_get_cntvct);
 
 static struct clocksource clocksource_counter = {
 	.name	= "arch_sys_counter",
@@ -479,9 +476,6 @@ static void __init arch_counter_register(unsigned type)
 	cyclecounter.mult = clocksource_counter.mult;
 	cyclecounter.shift = clocksource_counter.shift;
 	timecounter_init(&timecounter, &cyclecounter, start_count);
-
-	/* 56 bits minimum, so we assume worst case rollover */
-	sched_clock_register(arch_timer_read_counter, 56, arch_timer_rate);
 }
 
 static void __cpuinit arch_timer_stop(struct clock_event_device *clk)
@@ -727,7 +721,7 @@ static void __init arch_timer_mem_init(struct device_node *np)
 		return;
 	}
 
-	cnttidr = readl_relaxed_no_log(cntctlbase + CNTTIDR);
+	cnttidr = readl_relaxed(cntctlbase + CNTTIDR);
 	iounmap(cntctlbase);
 
 	/*

@@ -37,13 +37,12 @@
 #include <linux/regulator/consumer.h>
 #include <soc/qcom/subsystem_restart.h>
 #include <soc/qcom/subsystem_notif.h>
-#include <linux/msm-bus-board.h>
-#include <linux/msm-bus.h>
+#include <mach/msm_bus_board.h>
+#include <mach/msm_bus.h>
 #include <linux/clk/msm-clk.h>
 #include <linux/iommu.h>
-#include <linux/qcom_iommu.h>
-#include <linux/msm_iommu_domains.h>
-
+#include <mach/iommu.h>
+#include <mach/iommu_domains.h>
 #define DRV_NAME_DEMOD "demod"
 #define DRVDBG(fmt, args...)\
 	pr_debug(DRV_NAME_DEMOD " %s():%d " fmt, __func__, __LINE__, ## args)

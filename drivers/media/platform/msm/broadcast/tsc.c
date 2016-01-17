@@ -40,7 +40,7 @@
 #include <linux/pm_runtime.h>	/* debugfs support */
 #include <linux/pm_wakeup.h>	/* debugfs support */
 #include <linux/regulator/consumer.h> /* gdsc */
-#include <linux/msm-bus.h>	/* bus client */
+#include <mach/msm_bus.h>	/* bus client */
 #include <linux/delay.h>	/* usleep function */
 /* TODO: include <linux/mpq_standby_if.h> after MCU is mainlined */
 
@@ -3109,7 +3109,8 @@ static int tsc_get_iommu_info(struct platform_device *pdev)
 	int ret = 0;
 
 	/* Create a new ION client used by tsc ci to allocate memory */
-	tsc_device->iommu_info.ion_client = msm_ion_client_create("tsc_client");
+	tsc_device->iommu_info.ion_client = msm_ion_client_create(UINT_MAX,
+			"tsc_client");
 	if (IS_ERR_OR_NULL(tsc_device->iommu_info.ion_client)) {
 		pr_err("%s: error in ion_client_create", __func__);
 		ret = PTR_ERR(tsc_device->iommu_info.ion_client);

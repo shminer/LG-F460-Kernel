@@ -73,14 +73,11 @@
 #define WCD9XXX_MCLK_CLK_9P6HZ 9600000
 
 /* Only valid for 9.6 MHz mclk */
-#define WCD9XXX_DMIC_SAMPLE_RATE_600KHZ 600000
 #define WCD9XXX_DMIC_SAMPLE_RATE_2P4MHZ 2400000
 #define WCD9XXX_DMIC_SAMPLE_RATE_3P2MHZ 3200000
 #define WCD9XXX_DMIC_SAMPLE_RATE_4P8MHZ 4800000
 
 /* Only valid for 12.288 MHz mclk */
-#define WCD9XXX_DMIC_SAMPLE_RATE_768KHZ 768000
-#define WCD9XXX_DMIC_SAMPLE_RATE_2P048MHZ 2048000
 #define WCD9XXX_DMIC_SAMPLE_RATE_3P072MHZ 3072000
 #define WCD9XXX_DMIC_SAMPLE_RATE_4P096MHZ 4096000
 #define WCD9XXX_DMIC_SAMPLE_RATE_6P144MHZ 6144000
@@ -145,7 +142,7 @@ struct wcd9xxx_ocp_setting {
 	unsigned int	hph_ocp_limit:3; /* Headphone OCP current limit */
 };
 
-#define WCD9XXX_MAX_REGULATOR	9
+#define WCD9XXX_MAX_REGULATOR	8
 /*
  *      format : TABLA_<POWER_SUPPLY_PIN_NAME>_CUR_MAX
  *
@@ -161,7 +158,6 @@ struct wcd9xxx_ocp_setting {
 #define  WCD9XXX_VDDD_CDC_A_CUR_MAX       5000
 
 #define WCD9XXX_VDD_SPKDRV_NAME "cdc-vdd-spkdrv"
-#define WCD9XXX_VDD_SPKDRV2_NAME "cdc-vdd-spkdrv-2"
 
 struct wcd9xxx_regulator {
 	const char *name;
@@ -184,7 +180,6 @@ struct wcd9xxx_pdata {
 	struct wcd9xxx_regulator regulator[WCD9XXX_MAX_REGULATOR];
 	u32 mclk_rate;
 	u32 dmic_sample_rate;
-	u32 mad_dmic_sample_rate;
 	enum codec_variant cdc_variant;
 };
 

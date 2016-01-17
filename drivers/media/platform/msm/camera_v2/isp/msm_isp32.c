@@ -12,7 +12,7 @@
 
 #include <linux/module.h>
 #include <linux/platform_device.h>
-#include <linux/qcom_iommu.h>
+#include <mach/iommu.h>
 
 #include "msm_isp32.h"
 #include "msm_isp_util.h"

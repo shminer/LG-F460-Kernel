@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,7 +15,7 @@
 #ifndef __MSM_SYSMON_H
 #define __MSM_SYSMON_H
 
-#include <soc/qcom/smd.h>
+#include <mach/msm_smd.h>
 #include <soc/qcom/subsystem_notif.h>
 
 /**
@@ -57,7 +57,7 @@ static inline int sysmon_send_shutdown(enum subsys_id dest_ss)
 }
 #endif
 
-/*                                                            */
+/* FEATURE_LGE_MODEM_DEBUG_INFO, 2014-11-04, jin.park@lge.com */
 #define FEATURE_LGE_MODEM_DEBUG_INFO
 #ifdef FEATURE_LGE_MODEM_DEBUG_INFO
 int sysmon_get_debug_info(enum subsys_id dest_ss, char *buf, size_t len);

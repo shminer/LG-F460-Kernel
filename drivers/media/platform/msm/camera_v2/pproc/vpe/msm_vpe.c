@@ -18,7 +18,7 @@
 #include <linux/msm_ion.h>
 #include <linux/iommu.h>
 #include <linux/msm_iommu_domains.h>
-#include <linux/qcom_iommu.h>
+#include <mach/iommu.h>
 #include <media/v4l2-dev.h>
 #include <media/v4l2-event.h>
 #include <media/v4l2-fh.h>
@@ -411,7 +411,7 @@ static int vpe_init_mem(struct vpe_device *vpe_dev)
 {
 	kref_init(&vpe_dev->refcount);
 	kref_get(&vpe_dev->refcount);
-	vpe_dev->client = msm_ion_client_create("vpe");
+	vpe_dev->client = msm_ion_client_create(-1, "vpe");
 
 	if (!vpe_dev->client) {
 		pr_err("couldn't create ion client\n");

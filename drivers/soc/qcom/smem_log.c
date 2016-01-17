@@ -277,62 +277,13 @@ static char *find_sym(uint32_t id, uint32_t val)
 static void init_syms(void) {}
 #endif
 
-union fifo_mem {
-	uint64_t u64;
-	uint8_t u8;
-};
-
-/**
- * memcpy_to_log() - copy to SMEM log FIFO
- * @dest: Destination address
- * @src: Source address
- * @num_bytes: Number of bytes to copy
- *
- * @return: Address of destination
- *
- * This function copies num_bytes from src to dest maintaining natural alignment
- * for accesses to dest as required for Device memory.
- */
-static void *memcpy_to_log(void *dest, const void *src, size_t num_bytes)
-{
-	union fifo_mem *temp_dst = (union fifo_mem *)dest;
-	union fifo_mem *temp_src = (union fifo_mem *)src;
-	uintptr_t mask = sizeof(union fifo_mem) - 1;
-
-	/* Do byte copies until we hit 8-byte (double word) alignment */
-	while ((uintptr_t)temp_dst & mask && num_bytes) {
-		__raw_writeb_no_log(temp_src->u8, temp_dst);
-		temp_src = (union fifo_mem *)((uintptr_t)temp_src + 1);
-		temp_dst = (union fifo_mem *)((uintptr_t)temp_dst + 1);
-		num_bytes--;
-	}
-
-	/* Do double word copies */
-	while (num_bytes >= sizeof(union fifo_mem)) {
-		__raw_writeq_no_log(temp_src->u64, temp_dst);
-		temp_dst++;
-		temp_src++;
-		num_bytes -= sizeof(union fifo_mem);
-	}
-
-	/* Copy remaining bytes */
-	while (num_bytes--) {
-		__raw_writeb_no_log(temp_src->u8, temp_dst);
-		temp_src = (union fifo_mem *)((uintptr_t)temp_src + 1);
-		temp_dst = (union fifo_mem *)((uintptr_t)temp_dst + 1);
-	}
-
-	return dest;
-}
-
-
 static inline unsigned int read_timestamp(void)
 {
 	return (unsigned int)(arch_counter_get_cntpct());
 }
 
 static void smem_log_event_from_user(struct smem_log_inst *inst,
-				     const char *buf, int size, int num)
+				     const char __user *buf, int size, int num)
 {
 	uint32_t idx;
 	uint32_t next_idx;
@@ -340,6 +291,7 @@ static void smem_log_event_from_user(struct smem_log_inst *inst,
 	uint32_t identifier = 0;
 	uint32_t timetick = 0;
 	int first = 1;
+	int ret;
 
 	if (!inst->idx) {
 		pr_err("%s: invalid write index\n", __func__);
@@ -352,7 +304,15 @@ static void smem_log_event_from_user(struct smem_log_inst *inst,
 		idx = *inst->idx;
 
 		if (idx < inst->num) {
-			memcpy_to_log(&inst->events[idx], buf, size);
+			ret = copy_from_user(&inst->events[idx],
+					     buf, size);
+			if (ret) {
+				printk("ERROR %s:%i tried to write "
+				       "%i got ret %i",
+				       __func__, __LINE__,
+				       size, size - ret);
+				goto out;
+			}
 
 			if (first) {
 				identifier =
@@ -376,6 +336,7 @@ static void smem_log_event_from_user(struct smem_log_inst *inst,
 		buf += sizeof(struct smem_log_item);
 	}
 
+ out:
 	wmb();
 	remote_spin_unlock_irqrestore(inst->remote_spinlock, flags);
 }
@@ -403,8 +364,10 @@ static void _smem_log_event(
 
 	idx = *_idx;
 
-	if (idx < num)
-		memcpy_to_log(&events[idx], &item, sizeof(item));
+	if (idx < num) {
+		memcpy(&events[idx],
+		       &item, sizeof(item));
+	}
 
 	next_idx = idx + 1;
 	if (next_idx >= num)
@@ -445,8 +408,10 @@ static void _smem_log_event6(
 	idx = *_idx;
 
 	/* FIXME: Wrap around */
-	if (idx < (num-1))
-		memcpy_to_log(&events[idx], &item, sizeof(item));
+	if (idx < (num-1)) {
+		memcpy(&events[idx],
+			&item, sizeof(item));
+	}
 
 	next_idx = idx + 2;
 	if (next_idx >= num)
@@ -492,10 +457,8 @@ static int _smem_log_init(void)
 					     sizeof(uint32_t),
 					     0,
 					     SMEM_ANY_HOST_FLAG);
-	if (IS_ERR_OR_NULL(inst[GEN].events) || IS_ERR_OR_NULL(inst[GEN].idx)) {
-		pr_err("%s: no log or log_idx allocated\n", __func__);
-		return -ENODEV;
-	}
+	if (!inst[GEN].events || !inst[GEN].idx)
+		pr_info("%s: no log or log_idx allocated\n", __func__);
 
 	inst[GEN].num = SMEM_LOG_NUM_ENTRIES;
 	inst[GEN].read_idx = 0;
@@ -516,30 +479,16 @@ static int _smem_log_init(void)
 	return 0;
 }
 
-static ssize_t smem_log_write_bin(struct file *fp, const char __user *_buf,
+static ssize_t smem_log_write_bin(struct file *fp, const char __user *buf,
 			 size_t count, loff_t *pos)
 {
-	void *buf;
-	int r;
-
 	if (count < sizeof(struct smem_log_item))
 		return -EINVAL;
-
-	buf = kmalloc(count, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-
-	r = copy_from_user(buf, _buf, count);
-	if (r) {
-		kfree(buf);
-		return -EFAULT;
-	}
 
 	if (smem_log_enable)
 		smem_log_event_from_user(fp->private_data, buf,
 					sizeof(struct smem_log_item),
 					count / sizeof(struct smem_log_item));
-	kfree(buf);
 	return count;
 }
 

@@ -41,7 +41,7 @@
 #define MDM9x35_DUAL_LINK		"HSIC+PCIe"
 #define MDM9x35_HSIC			"HSIC"
 #define MDM2AP_STATUS_TIMEOUT_MS	120000L
-#define MODEM_CRASH_REPORT_TIMEOUT	5000L		//
+#define MODEM_CRASH_REPORT_TIMEOUT	5000L		// LGE_CHANGED 2014.05.12, kyeongsu.jang@lge.com Advanced Crash Handler
 #define MDM_MODEM_TIMEOUT		3000
 #define DEF_RAMDUMP_TIMEOUT		120000
 #define DEF_RAMDUMP_DELAY		2000
@@ -49,7 +49,7 @@
 #define SFR_MAX_RETRIES			10
 #define SFR_RETRY_INTERVAL		1000
 
-static int ramdump_done;		//
+static int ramdump_done;		// LGE_CHANGED 2014.05.19, kyeongsu.jang@lge.com Advanced Crash Handler
 
 enum mdm_gpio {
 	AP2MDM_WAKEUP = 0,
@@ -78,7 +78,7 @@ enum irq_mask {
 	IRQ_ERRFATAL = 0x1,
 	IRQ_STATUS = 0x2,
 	IRQ_PBLRDY = 0x4,
-#ifdef VDD_MIN_INTERRUPT /*                             */
+#ifdef VDD_MIN_INTERRUPT /* LGE added vdd_min_interrupt */
 	IRQ_VDDMIN = 0x8,
 #endif
 };
@@ -88,7 +88,7 @@ struct mdm_ctrl {
 	spinlock_t status_lock;
 	struct workqueue_struct *mdm_queue;
 	struct delayed_work mdm2ap_status_check_work;
-	struct delayed_work save_sfr_reason_work;	//
+	struct delayed_work save_sfr_reason_work;	// LGE_CHANGED 2014.05.12, kyeongsu.jang@lge.com Advanced Crash Handler
 	struct work_struct mdm_status_work;
 	struct work_struct restart_reason_work;
 	struct completion debug_done;
@@ -100,7 +100,7 @@ struct mdm_ctrl {
 	int errfatal_irq;
 	int status_irq;
 	int pblrdy_irq;
-#ifdef VDD_MIN_INTERRUPT /*                             */
+#ifdef VDD_MIN_INTERRUPT /* LGE added vdd_min_interrupt */
 	int vddmin_irq;
 #endif
 	int debug;
@@ -343,7 +343,7 @@ static void mdm_enable_irqs(struct mdm_ctrl *mdm)
 		enable_irq(mdm->pblrdy_irq);
 		mdm->irq_mask &= ~IRQ_PBLRDY;
 	}
-#ifdef VDD_MIN_INTERRUPT /*                             */
+#ifdef VDD_MIN_INTERRUPT /* LGE added vdd_min_interrupt */
 	if (mdm->irq_mask & IRQ_VDDMIN) {
 		enable_irq(mdm->vddmin_irq);
 		mdm->irq_mask &= ~IRQ_VDDMIN;
@@ -369,7 +369,7 @@ static void mdm_disable_irqs(struct mdm_ctrl *mdm)
 		disable_irq_nosync(mdm->pblrdy_irq);
 		mdm->irq_mask |= IRQ_PBLRDY;
 	}
-#ifdef VDD_MIN_INTERRUPT /*                             */
+#ifdef VDD_MIN_INTERRUPT /* LGE added vdd_min_interrupt */
 	if (!(mdm->irq_mask & IRQ_VDDMIN)) {
 		disable_irq_nosync(mdm->vddmin_irq);
 		mdm->irq_mask |= IRQ_VDDMIN;
@@ -599,7 +599,7 @@ static void mdm2ap_status_check(struct work_struct *work)
 	struct esoc_clink *esoc = mdm->esoc;
 	if (gpio_get_value(MDM_GPIO(mdm, MDM2AP_STATUS)) == 0) {
 		dev_dbg(dev, "MDM2AP_STATUS did not go high\n");
-		esoc_clink_evt_notify(ESOC_INVALID_STATE, esoc);
+		esoc_clink_evt_notify(ESOC_UNEXPECTED_RESET, esoc);
 
 #ifdef FEATURE_LGE_MODEM_DEBUG_INFO
     modem_debug.modem_ssr_level = subsys_get_restart_level(mdm->esoc->subsys_dev);
@@ -657,7 +657,7 @@ static void mdm_get_restart_reason(struct work_struct *work)
 	mdm->get_restart_reason = false;
 }
 
-/*                                                                           */
+/* LGE_CHANGED_START 2014.05.12, kyeongsu.jang@lge.com Advanced Crash Handler*/
 static int copy_dump(char index)
 {
         char *mkdir_argv[3] = { NULL, NULL, NULL };
@@ -668,7 +668,7 @@ static int copy_dump(char index)
 	char path_to_dump[128];
         char path_to_copy[128];
 	char *dump_files[] = { "CODERAM.BIN", "DATARAM.BIN", "DDRCS0.BIN", "IPA_DRAM.BIN", "IPA_IRAM.BIN",
-			"IPA_REG1.BIN", "IPA_REG2.BIN", "IPA_REG3.BIN", "LPM.BIN", "MSGRAM.BIN",
+			"IPA_REG1.BIN", "IPA_REG2.BIN", "IPA_REG3.BIN", "LPM.BIN", "MSGRAM.BIN", 
 			"OCIMEM.BIN", "PMIC_PON.BIN", "RST_STAT.BIN", "load.cmm" };
         int ret, i;
 
@@ -707,7 +707,7 @@ static int copy_dump(char index)
         return 1;
 }
 
-static int ach_enabled(void)
+static int ach_enabled(void) 
 {
 	int fd, ret;
 	char *ach_switch_path = "/sys/module/lge_handle_panic/parameters/ach_enable";
@@ -718,7 +718,7 @@ static int ach_enabled(void)
 	if (fd < 0) {
 		printk("%s : can't open the ach switch file\n", __func__);
 		return 0;
-	}
+	} 
 
 	ret = sys_read(fd, &switch_buf, 1);
 
@@ -750,7 +750,7 @@ static void save_sfr_reason_work_fn(struct work_struct *work)
 	char serialno_file_path[]="/data/logger/serialno";
 	char serialno_buf[20];
 	int read_len = 0;
-
+       
 	mm_segment_t oldfs;
 	oldfs = get_fs();
 	set_fs(get_ds());
@@ -819,7 +819,7 @@ static void save_sfr_reason_work_fn(struct work_struct *work)
 			} else {
 
 				ret = sys_read(fd, &report_index, 1);
-
+	
 				if (ret < 0) {
 					printk("%s : can't read the index file\n", __func__);
 					report_index = '0';
@@ -891,7 +891,7 @@ static void save_sfr_reason_work_fn(struct work_struct *work)
 		}
 	} while (++ntries < 10);
 }
-/*                                                                         */
+/* LGE_CHANGED_END 2014.05.12, kyeongsu.jang@lge.com Advanced Crash Handler*/
 
 static void mdm_notify(enum esoc_notify notify, struct esoc_clink *esoc)
 {
@@ -909,10 +909,10 @@ static void mdm_notify(enum esoc_notify notify, struct esoc_clink *esoc)
 		break;
 	case ESOC_BOOT_DONE:
 		esoc_clink_evt_notify(ESOC_RUN_STATE, esoc);
-/*                                                                            */
+/* LGE_CHANGED_START 2014.05.12, kyeongsu.jang@lge.com Advanced Crash Handler */
 		printk("[Advanced Crash Handler] start save_sfr_reason_work!");
 		schedule_delayed_work(&mdm->save_sfr_reason_work, msecs_to_jiffies(MODEM_CRASH_REPORT_TIMEOUT));
-/*                                                                          */
+/* LGE_CHANGED_END 2014.05.12, kyeongsu.jang@lge.com Advanced Crash Handler */
 		break;
 	case ESOC_IMG_XFER_RETRY:
 		mdm->init = 1;
@@ -973,12 +973,14 @@ static void mdm_notify(enum esoc_notify notify, struct esoc_clink *esoc)
 		gpio_direction_output(MDM_GPIO(mdm, AP2MDM_SOFT_RESET),
 				!!mdm->soft_reset_inverted);
 		mdelay(300);
+		gpio_direction_output(MDM_GPIO(mdm, AP2MDM_SOFT_RESET),
+				!mdm->soft_reset_inverted);
 		break;
-/*                                                                            */
+/* LGE_CHANGED_START 2014.05.19, kyeongsu.jang@lge.com Advanced Crash Handler */
 	case ESOC_RAMDUMP_DONE :
 		ramdump_done = 1;
 		break;
-/*                                                                          */
+/* LGE_CHANGED_END 2014.05.19, kyeongsu.jang@lge.com Advanced Crash Handler */
 	};
 	return;
 }
@@ -994,7 +996,6 @@ static irqreturn_t mdm_errfatal(int irq, void *dev_id)
 	dev = mdm->dev;
 	if (!mdm->ready)
 		goto mdm_pwroff_irq;
-	mdm->ready = false;
 	esoc = mdm->esoc;
 	dev_err(dev, "%s: mdm sent errfatal interrupt\n",
 					 __func__);
@@ -1064,7 +1065,7 @@ static irqreturn_t mdm_pblrdy_change(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-#ifdef VDD_MIN_INTERRUPT /*                             */
+#ifdef VDD_MIN_INTERRUPT /* LGE added vdd_min_interrupt */
 static irqreturn_t mdm_vdd_min(int irq, void *dev_id)
 {
 	struct mdm_ctrl *mdm;
@@ -1158,7 +1159,7 @@ static int mdm_configure_ipc(struct mdm_ctrl *mdm, struct platform_device *pdev)
 			   __func__);
 		goto fatal_err;
 	}
-#ifdef VDD_MIN_INTERRUPT /*                             */
+#ifdef VDD_MIN_INTERRUPT /* LGE added vdd_min_interrupt */
 	if (gpio_request(MDM_GPIO(mdm, MDM2AP_VDDMIN), "MDM2AP_VDDMIN")) {
 		dev_err(dev, "%s Failed to configure MDM2AP_VDDMIN gpio\n",
 			   __func__);
@@ -1207,7 +1208,7 @@ static int mdm_configure_ipc(struct mdm_ctrl *mdm, struct platform_device *pdev)
 	gpio_direction_input(MDM_GPIO(mdm, MDM2AP_STATUS));
 	gpio_direction_input(MDM_GPIO(mdm, MDM2AP_ERRFATAL));
 
-#ifdef VDD_MIN_INTERRUPT /*                             */
+#ifdef VDD_MIN_INTERRUPT /* LGE added vdd_min_interrupt */
 	gpio_direction_input(MDM_GPIO(mdm, MDM2AP_VDDMIN));
 #endif
 	/* ERR_FATAL irq. */
@@ -1249,7 +1250,7 @@ status_err:
 		if (irq < 0) {
 			dev_err(dev, "%s: MDM2AP_PBLRDY IRQ request failed\n",
 				 __func__);
-#ifdef VDD_MIN_INTERRUPT /*                             */
+#ifdef VDD_MIN_INTERRUPT /* LGE added vdd_min_interrupt */
 			goto vdd_min;
 #else
 			goto pblrdy_err;
@@ -1262,7 +1263,7 @@ status_err:
 		if (ret < 0) {
 			dev_err(dev, "MDM2AP_PBL IRQ#%d request failed %d\n",
 								irq, ret);
-#ifdef VDD_MIN_INTERRUPT /*                             */
+#ifdef VDD_MIN_INTERRUPT /* LGE added vdd_min_interrupt */
 			goto vdd_min;
 #else
 			goto pblrdy_err;
@@ -1271,7 +1272,7 @@ status_err:
 		}
 		mdm->pblrdy_irq = irq;
 	}
-#ifdef VDD_MIN_INTERRUPT /*                             */
+#ifdef VDD_MIN_INTERRUPT /* LGE added vdd_min_interrupt */
 vdd_min:
 	if (gpio_is_valid(MDM_GPIO(mdm, MDM2AP_VDDMIN))) {
 		irq =  platform_get_irq_byname(pdev, "mdm2ap_vddmin_irq");
@@ -1310,9 +1311,9 @@ static int mdm9x25_setup_hw(struct mdm_ctrl *mdm,
 
 	mdm->dev = &pdev->dev;
 	esoc = devm_kzalloc(mdm->dev, sizeof(*esoc), GFP_KERNEL);
-	if (!esoc) {
+	if (IS_ERR(esoc)) {
 		dev_err(mdm->dev, "cannot allocate esoc device\n");
-		return -ENOMEM;
+		return PTR_ERR(esoc);
 	}
 	mdm->mdm_queue = alloc_workqueue("mdm_queue", 0, 0);
 	if (!mdm->mdm_queue) {
@@ -1346,10 +1347,10 @@ static int mdm9x25_setup_hw(struct mdm_ctrl *mdm,
 	INIT_WORK(&mdm->mdm_status_work, mdm_status_fn);
 	INIT_WORK(&mdm->restart_reason_work, mdm_get_restart_reason);
 	INIT_DELAYED_WORK(&mdm->mdm2ap_status_check_work, mdm2ap_status_check);
-/*                                                                            */
+/* LGE_CHANGED_START 2014.05.12, kyeongsu.jang@lge.com Advanced Crash Handler */
 	INIT_DELAYED_WORK(&mdm->save_sfr_reason_work, save_sfr_reason_work_fn);
 	ramdump_done = 0;
-/*                                                                          */
+/* LGE_CHANGED_END 2014.05.12, kyeongsu.jang@lge.com Advanced Crash Handler */
 	mdm->get_restart_reason = false;
 	mdm->debug_fail = false;
 	mdm->esoc = esoc;
@@ -1379,9 +1380,9 @@ static int mdm9x35_setup_hw(struct mdm_ctrl *mdm,
 	mdm->dev = &pdev->dev;
 	node = pdev->dev.of_node;
 	esoc = devm_kzalloc(mdm->dev, sizeof(*esoc), GFP_KERNEL);
-	if (!esoc) {
+	if (IS_ERR(esoc)) {
 		dev_err(mdm->dev, "cannot allocate esoc device\n");
-		return -ENOMEM;
+		return PTR_ERR(esoc);
 	}
 	mdm->mdm_queue = alloc_workqueue("mdm_queue", 0, 0);
 	if (!mdm->mdm_queue) {
@@ -1433,10 +1434,10 @@ static int mdm9x35_setup_hw(struct mdm_ctrl *mdm,
 	INIT_WORK(&mdm->mdm_status_work, mdm_status_fn);
 	INIT_WORK(&mdm->restart_reason_work, mdm_get_restart_reason);
 	INIT_DELAYED_WORK(&mdm->mdm2ap_status_check_work, mdm2ap_status_check);
-/*                                                                            */
+/* LGE_CHANGED_START 2014.05.12, kyeongsu.jang@lge.com Advanced Crash Handler */
 	INIT_DELAYED_WORK(&mdm->save_sfr_reason_work, save_sfr_reason_work_fn);
 	ramdump_done = 0;
-/*                                                                          */
+/* LGE_CHANGED_END 2014.05.12, kyeongsu.jang@lge.com Advanced Crash Handler */
 	mdm->get_restart_reason = false;
 	mdm->debug_fail = false;
 	mdm->esoc = esoc;
@@ -1492,9 +1493,8 @@ static int mdm_probe(struct platform_device *pdev)
 		return PTR_ERR(match);
 	mdm_ops = match->data;
 	mdm = devm_kzalloc(&pdev->dev, sizeof(*mdm), GFP_KERNEL);
-	if (!mdm)
-		return -ENOMEM;
-
+	if (IS_ERR(mdm))
+		return PTR_ERR(mdm);
 	return mdm_ops->config_hw(mdm, mdm_ops->clink_ops, pdev);
 }
 

@@ -24,7 +24,7 @@
 #include <linux/list.h>
 #include <linux/hash.h>
 #include <linux/msm_ion.h>
-#include <soc/qcom/smd.h>
+#include <mach/msm_smd.h>
 #include <linux/msm_iommu_domains.h>
 #include <linux/scatterlist.h>
 #include <linux/fs.h>
@@ -361,7 +361,6 @@ static int context_alloc(struct fastrpc_apps *me, uint32_t kernel,
 		goto bail;
 
 	INIT_HLIST_NODE(&ctx->hn);
-	hlist_add_fake(&ctx->hn);
 	ctx->pra = (remote_arg_t *)(&ctx[1]);
 	ctx->fds = invokefd->fds == 0 ? 0 : (int *)(&ctx->pra[bufs]);
 	ctx->handles = invokefd->fds == 0 ? 0 :
@@ -872,7 +871,8 @@ static int fastrpc_init(void)
 	context_list_ctor(&me->clst);
 	for (i = 0; i < RPC_HASH_SZ; ++i)
 		INIT_HLIST_HEAD(&me->htbl[i]);
-	me->iclient = msm_ion_client_create(DEVICE_NAME);
+	me->iclient = msm_ion_client_create(ION_HEAP_CARVEOUT_MASK,
+						DEVICE_NAME);
 	VERIFY(err, 0 == IS_ERR_OR_NULL(me->iclient));
 	if (err)
 		goto bail;

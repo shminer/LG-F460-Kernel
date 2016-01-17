@@ -74,7 +74,6 @@ struct msm_dai_q6_hdmi_dai_data {
 };
 
 static atomic_t hdmi_port_start;
-
 static struct afe_ctl this_afe;
 
 #define TIMEOUT_MS 1000
@@ -105,24 +104,6 @@ void afe_set_aanc_info(struct aanc_data *q6_aanc_info)
 		this_afe.aanc_info.aanc_tx_port);
 }
 
-static void afe_callback_debug_print(struct apr_client_data *data)
-{
-	uint32_t *payload;
-	payload = data->payload;
-
-	if (data->payload_size >= 8)
-		pr_debug("%s: code = 0x%x PL#0[0x%x], PL#1[0x%x], size = %d\n",
-			__func__, data->opcode, payload[0], payload[1],
-			data->payload_size);
-	else if (data->payload_size >= 4)
-		pr_debug("%s: code = 0x%x PL#0[0x%x], size = %d\n",
-			__func__, data->opcode, payload[0],
-			data->payload_size);
-	else
-		pr_debug("%s: code = 0x%x, size = %d\n",
-			__func__, data->opcode, data->payload_size);
-}
-
 static int32_t afe_callback(struct apr_client_data *data, void *priv)
 {
 	int i;
@@ -151,7 +132,11 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 			this_afe.task->comm, this_afe.task->pid);
 		return 0;
 	}
-	afe_callback_debug_print(data);
+	pr_debug("%s: opcode = 0x%x cmd = 0x%x status = 0x%x size = %d\n",
+			__func__, data->opcode,
+			((uint32_t *)(data->payload))[0],
+			((uint32_t *)(data->payload))[1],
+			 data->payload_size);
 	if (data->opcode == AFE_PORT_CMDRSP_GET_PARAM_V2) {
 		u8 *payload = data->payload;
 		if ((data->payload_size < sizeof(this_afe.calib_data))
@@ -174,10 +159,10 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 		uint32_t *payload;
 		uint16_t port_id = 0;
 		payload = data->payload;
+		pr_debug("%s: opcode = 0x%x cmd = 0x%x status = 0x%x token=%d\n",
+					__func__, data->opcode,
+					payload[0], payload[1], data->token);
 		if (data->opcode == APR_BASIC_RSP_RESULT) {
-			pr_debug("%s:opcode = 0x%x cmd = 0x%x status = 0x%x token=%d\n",
-				__func__, data->opcode,
-				payload[0], payload[1], data->token);
 			/* payload[1] contains the error status for response */
 			if (payload[1] != 0) {
 				atomic_set(&this_afe.status, -1);
@@ -1837,7 +1822,6 @@ int afe_short_silence(u32 duration)
 }
 EXPORT_SYMBOL(afe_short_silence);
 
-
 int afe_open(u16 port_id,
 		union afe_port_config *afe_config, int rate)
 {
@@ -2331,7 +2315,7 @@ int q6afe_audio_client_buf_alloc_contiguous(unsigned int dir,
 	ac->port[dir].buf = buf;
 
 	rc = msm_audio_ion_alloc("afe_client", &buf[0].client,
-				&buf[0].handle, PAGE_ALIGN(bufsz*bufcnt),
+				&buf[0].handle, bufsz*bufcnt,
 				&buf[0].phys, &len,
 				&buf[0].data);
 	if (rc) {
@@ -2381,7 +2365,7 @@ int afe_memory_map(phys_addr_t dma_addr_p, u32 dma_buf_sz,
 
 	mutex_lock(&this_afe.afe_cmd_lock);
 	ac->mem_map_handle = 0;
-	ret = afe_cmd_memory_map(dma_addr_p, PAGE_ALIGN(dma_buf_sz));
+	ret = afe_cmd_memory_map(dma_addr_p, dma_buf_sz);
 	if (ret < 0) {
 		pr_err("%s: afe_cmd_memory_map failed %d\n",
 			__func__, ret);
@@ -2620,11 +2604,6 @@ int afe_cmd_memory_unmap(u32 mem_map_handle)
 
 	pr_debug("%s: handle 0x%x\n", __func__, mem_map_handle);
 
-	if (!mem_map_handle) {
-		pr_err("%s: mem map handle (null)\n", __func__);
-		return -EINVAL;
-	}
-
 	if (this_afe.apr == NULL) {
 		this_afe.apr = apr_register("ADSP", "AFE", afe_callback,
 					0xFFFFFFFF, &this_afe);
@@ -2667,11 +2646,6 @@ int afe_cmd_memory_unmap_nowait(u32 mem_map_handle)
 	struct afe_service_cmd_shared_mem_unmap_regions mregion;
 
 	pr_debug("%s: handle 0x%x\n", __func__, mem_map_handle);
-
-	if (!mem_map_handle) {
-		pr_err("%s: mem map handle (null)\n", __func__);
-		return -EINVAL;
-	}
 
 	if (this_afe.apr == NULL) {
 		this_afe.apr = apr_register("ADSP", "AFE", afe_callback,
@@ -2986,7 +2960,7 @@ static ssize_t afe_debug_write(struct file *filp,
 				goto afe_error;
 			}
 
-			if (param[1] > 100) {
+			if (param[1] < 0 || param[1] > 100) {
 				pr_err("%s: Error, volume shoud be 0 to 100 percentage param = %lu\n",
 					__func__, param[1]);
 				rc = -EINVAL;
@@ -3224,7 +3198,6 @@ int afe_validate_port(u16 port_id)
 	case AFE_PORT_ID_PRIMARY_MI2S_TX:
 	case AFE_PORT_ID_QUATERNARY_MI2S_RX:
 	case AFE_PORT_ID_QUATERNARY_MI2S_TX:
-	case AFE_PORT_ID_TERTIARY_MI2S_TX:
 	{
 		ret = 0;
 		break;
@@ -3398,7 +3371,7 @@ int afe_close(int port_id)
 	ret = afe_apr_send_pkt(&stop, &this_afe.wait[index]);
 	if (ret)
 		pr_err("%s: AFE close failed %d\n", __func__, ret);
-		
+
 	if (port_id == HDMI_RX)
 		atomic_set(&hdmi_port_start, 0);
 fail_cmd:
@@ -3647,7 +3620,7 @@ int afe_spk_prot_get_calib_data(struct afe_spkr_prot_get_vi_calib *calib_resp)
 	}
 	memcpy(&calib_resp->res_cfg , &this_afe.calib_data.res_cfg,
 		sizeof(this_afe.calib_data.res_cfg));
-	pr_info("%s: state %d resistance %d\n", __func__,
+	pr_debug("%s: state %d resistance %d\n", __func__,
 			 calib_resp->res_cfg.th_vi_ca_state,
 			 calib_resp->res_cfg.r0_cali_q24);
 	ret = 0;
@@ -3738,7 +3711,7 @@ int q6afe_set_rtip(int enable)
 	switch (enable) {
 	case 0:
 	case 1:
-		pr_info("%s: enable/disable the module\n", __func__);
+		pr_info("%s: enable/disable the module", __func__);
 		set_param.pdata.param_id = AFE_PARAM_RTIP_ENABLE;
 		set_param.pdata.param_size = sizeof(struct afe_param_rtip_enable);
 		set_param.rtip_t.enable = enable;
@@ -3746,7 +3719,7 @@ int q6afe_set_rtip(int enable)
 	break;
 	case 2:
 	case 3:
-		pr_info("%s: set/reset debugging of the module\n", __func__);
+		pr_info("%s: set/reset debugging of the module", __func__);
 		set_param.pdata.param_id = AFE_PARAM_RTIP_DEBUG;
 		set_param.pdata.param_size = sizeof(struct afe_param_rtip_enable);
 		set_param.rtip_t.enable = enable - 2;
@@ -3754,7 +3727,7 @@ int q6afe_set_rtip(int enable)
 	break;
 	case 4:
 	case 5:
-		pr_info("%s: set/reset performance monitoring of the module\n", __func__);
+		pr_info("%s: set/reset performance monitoring of the module", __func__);
 		set_param.pdata.param_id = AFE_PARAM_RTIP_PERF;
 		set_param.pdata.param_size      = sizeof(struct afe_param_rtip_enable);
 		set_param.rtip_t.enable           = enable - 4;

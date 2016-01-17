@@ -40,7 +40,7 @@
 #include <linux/of_gpio.h>
 #include <linux/of_platform.h>
 #include <mach/board_lge.h>
-#include "../../drivers/soc/qcom/smd_private.h"
+#include "../../arch/arm/mach-msm/smd_private.h"
 
 /* Enable or Disable HDCP by default */
 /* hdcp_enable = 1: Enable,  0: Disable */

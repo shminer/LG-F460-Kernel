@@ -1792,3 +1792,4 @@ struct input_dev *max14688_input_device (struct device *dev)
 	return me->input_dev;
 }
 EXPORT_SYMBOL(max14688_input_device);
+

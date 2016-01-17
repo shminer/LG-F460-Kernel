@@ -136,7 +136,6 @@ Table 1-1: Process specific entries in /proc
  maps		Memory maps to executables and library files	(2.4)
  mem		Memory held by this process
  root		Link to the root directory of this process
- reclaim	Reclaim pages in this process
  stat		Process status
  statm		Process memory status information
  status		Process status in human readable form
@@ -370,8 +369,6 @@ is not associated with a file:
  [stack:1001]             = the stack of the thread with tid 1001
  [vdso]                   = the "virtual dynamic shared object",
                             the kernel system call handler
- [anon:<name>]            = an anonymous mapping that has been
-                            named by userspace
 
  or if empty, the mapping is anonymous.
 
@@ -422,7 +419,6 @@ KernelPageSize:        4 kB
 MMUPageSize:           4 kB
 Locked:              374 kB
 VmFlags: rd ex mr mw me de
-Name:           name from userspace
 
 the first of these lines shows the same information as is displayed for the
 mapping in /proc/PID/maps.  The remaining lines show the size of the mapping
@@ -473,9 +469,6 @@ Note that there is no guarantee that every flag and associated mnemonic will
 be present in all further kernel releases. Things get changed, the flags may
 be vanished or the reverse -- new added.
 
-The "Name" field will only be present on a mapping that has been named by
-userspace, and will show the name passed in by userspace.
-
 This file is only present if the CONFIG_MMU kernel configuration option is
 enabled.
 
@@ -490,25 +483,6 @@ To clear the bits for the anonymous pages associated with the process
 To clear the bits for the file mapped pages associated with the process
     > echo 3 > /proc/PID/clear_refs
 Any other value written to /proc/PID/clear_refs will have no effect.
-
-The file /proc/PID/reclaim is used to reclaim pages in this process.
-To reclaim file-backed pages,
-    > echo file > /proc/PID/reclaim
-
-To reclaim anonymous pages,
-    > echo anon > /proc/PID/reclaim
-
-To reclaim all pages,
-    > echo all > /proc/PID/reclaim
-
-Also, you can specify address range of process so part of address space
-will be reclaimed. The format is following as
-    > echo addr size-byte > /proc/PID/reclaim
-
-NOTE: addr should be page-aligned.
-
-Below is example which try to reclaim 2M from 0x100000.
-    > echo 0x100000 2M > /proc/PID/reclaim
 
 The /proc/pid/pagemap gives the PFN, which can be used to find the pageflags
 using /proc/kpageflags and number of times a page is mapped using

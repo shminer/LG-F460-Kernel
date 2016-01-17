@@ -540,7 +540,7 @@ static int soc_compr_set_params_fe(struct snd_compr_stream *cstream,
 				goto out;
 		}
 
-		memset(&fe->dpcm[fe_substream->stream].hw_params, 0,
+		memcpy(&fe->dpcm[fe_substream->stream].hw_params, params,
 				sizeof(struct snd_pcm_hw_params));
 
 		fe->dpcm[stream].runtime_update = SND_SOC_DPCM_UPDATE_FE;
@@ -553,7 +553,7 @@ static int soc_compr_set_params_fe(struct snd_compr_stream *cstream,
 		if (ret < 0)
 			goto out;
 	} else {
-		memset(&fe->dpcm[fe_substream->stream].hw_params, 0,
+		memcpy(&fe->dpcm[fe_substream->stream].hw_params, params,
 				sizeof(struct snd_pcm_hw_params));
 
 		fe->dpcm[stream].runtime_update = SND_SOC_DPCM_UPDATE_FE;
@@ -680,15 +680,14 @@ static int soc_compr_pointer(struct snd_compr_stream *cstream,
 {
 	struct snd_soc_pcm_runtime *rtd = cstream->private_data;
 	struct snd_soc_platform *platform = rtd->platform;
-	int ret = 0;
 
 	mutex_lock_nested(&rtd->pcm_mutex, rtd->pcm_subclass);
 
 	if (platform->driver->compr_ops && platform->driver->compr_ops->pointer)
-		ret = platform->driver->compr_ops->pointer(cstream, tstamp);
+		 platform->driver->compr_ops->pointer(cstream, tstamp);
 
 	mutex_unlock(&rtd->pcm_mutex);
-	return ret;
+	return 0;
 }
 
 static int soc_compr_copy(struct snd_compr_stream *cstream,
@@ -779,7 +778,6 @@ static struct snd_compr_ops soc_compr_dyn_ops = {
 	.get_caps		= soc_compr_get_caps,
 	.get_codec_caps		= soc_compr_get_codec_caps
 };
-
 
 /* create a new compress */
 int soc_new_compress(struct snd_soc_pcm_runtime *rtd, int num)

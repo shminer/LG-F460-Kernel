@@ -416,7 +416,7 @@ int mdss_mdp_perf_calc_pipe(struct mdss_mdp_pipe *pipe,
 	 * no need to account for these lines in MDP clock or request bus
 	 * bandwidth to fetch them.
 	 */
-	src_h = DECIMATED_DIMENSION(src.h, pipe->vert_deci);
+	src_h = src.h >> pipe->vert_deci;
 
 	quota = fps * src.w * src_h;
 
@@ -1282,9 +1282,6 @@ static struct mdss_mdp_ctl *mdss_mdp_ctl_alloc(struct mdss_data_type *mdata,
 			ctl->ref_cnt++;
 			ctl->mdata = mdata;
 			mutex_init(&ctl->lock);
-			/* sharpening control */
-			mutex_init(&ctl->offlock);
-			/* sharpening control */
 			spin_lock_init(&ctl->spin_lock);
 			BLOCKING_INIT_NOTIFIER_HEAD(&ctl->notifier_head);
 			pr_debug("alloc ctl_num=%d\n", ctl->num);
@@ -2124,7 +2121,7 @@ int mdss_mdp_ctl_start(struct mdss_mdp_ctl *ctl, bool handoff)
 		ctl->panel_data->panel_info.is_split_display = true;
 		sctl->panel_data->panel_info.is_split_display = true;
 	}
-	
+
 	mutex_lock(&ctl->lock);
 
 	if (mdss_mdp_ctl_is_power_off(ctl))

@@ -72,12 +72,12 @@ static struct cn_prop cn_array[] = {
 int __init lge_init_dt_scan_chosen(unsigned long node, const char *uname,
 							int depth, void *data)
 {
-	int len;
+	unsigned long len;
 	int i;
 	enum cn_prop_type type;
-	const char *p;
-	const uint32_t *u32;
-	const void *temp;
+	char *p;
+	uint32_t *u32;
+	void *temp;
 
 	if (depth != 1 || (strcmp(uname, "chosen") != 0
 				&& strcmp(uname, "chosen@0") != 0))
@@ -546,11 +546,11 @@ int __init lge_boot_mode_init(char *s)
 		lge_boot_mode = LGE_BOOT_MODE_PIF_130K;
 	else if (!strcmp(s, "pif_910k"))
 		lge_boot_mode = LGE_BOOT_MODE_PIF_910K;
-	/*                            */
+	/* LGE_UPDATE_S for MINIOS2.0 */
 	else if (!strcmp(s, "miniOS"))
 		lge_boot_mode = LGE_BOOT_MODE_MINIOS;
 	pr_info("ANDROID BOOT MODE : %d %s\n", lge_boot_mode, s);
-	/*                            */
+	/* LGE_UPDATE_E for MINIOS2.0 */
 
 	return 1;
 }
@@ -615,6 +615,35 @@ hw_rev_type lge_get_board_revno(void)
 {
 	return lge_bd_rev;
 }
+#if defined(CONFIG_LGE_LCD_KCAL)
+/* LGE_CHANGE_S
+* change code for LCD KCAL
+* 2013-05-08, seojin.lee@lge.com
+*/
+int g_kcal_r = 255;
+int g_kcal_g = 255;
+int g_kcal_b = 255;
+
+static int __init display_kcal_setup(char *kcal)
+{
+	char vaild_k = 0;
+	int kcal_r = 255;
+	int kcal_g = 255;
+	int kcal_b = 255;
+
+	sscanf(kcal, "%d|%d|%d|%c", &kcal_r, &kcal_g, &kcal_b, &vaild_k);
+	pr_info("kcal is %d|%d|%d|%c\n", kcal_r, kcal_g, kcal_b, vaild_k);
+
+	if (vaild_k != 'K') {
+		pr_info("kcal not calibrated yet : %d\n", vaild_k);
+		kcal_r = kcal_g = kcal_b = 255;
+	}
+
+	kcal_set_values(kcal_r, kcal_g, kcal_b);
+	return 1;
+}
+__setup("lge.kcal=", display_kcal_setup);
+#endif
 
 int on_hidden_reset;
 
